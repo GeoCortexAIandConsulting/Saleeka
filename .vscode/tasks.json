@@ -1,0 +1,10 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Install everything", "type": "shell", "command": "npm run install:all", "problemMatcher": [] },
+    { "label": "API (port 4000)", "type": "shell", "command": "npm run dev:server", "isBackground": true, "problemMatcher": [], "presentation": { "panel": "dedicated", "group": "saleeqa" } },
+    { "label": "Website (port 3000)", "type": "shell", "command": "npm run dev:web", "isBackground": true, "problemMatcher": [], "presentation": { "panel": "dedicated", "group": "saleeqa" } },
+    { "label": "Start Saleeqa (API + website)", "dependsOn": ["API (port 4000)", "Website (port 3000)"], "problemMatcher": [] },
+    { "label": "Run tests", "type": "shell", "command": "npm test", "problemMatcher": [] }
+  ]
+}
