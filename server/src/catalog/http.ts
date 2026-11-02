@@ -79,9 +79,12 @@ async function rulesFor(origin: string): Promise<Rules> {
 export class Disallowed extends Error {}
 
 /** GET a URL as text, if robots.txt allows it, after the polite delay for that host. */
-export async function politeGet(url: string, { retries = 5 } = {}): Promise<string> {
+const MAX_BACKOFF_MS = 90_000;
+
+export async function politeGet(url: string, { retries = 5, minDelayMs = 0 } = {}): Promise<string> {
   const u = new URL(url);
   const rules = await rulesFor(u.origin);
+  if (minDelayMs > rules.delayMs) rules.delayMs = minDelayMs;
   if (!allowedBy(rules, u.pathname + u.search)) throw new Disallowed(`robots.txt disallows ${u.pathname}${u.search}`);
   for (let attempt = 0; ; attempt++) {
     const wait = (lastHit.get(u.host) ?? 0) + rules.delayMs - Date.now();
@@ -102,7 +105,8 @@ export async function politeGet(url: string, { retries = 5 } = {}): Promise<stri
       return body.toString('utf8');
     } catch (e: any) {
       if (e.final || attempt >= retries) throw e;
-      await sleep(Math.max(e.waitMs ?? 0, rules.delayMs * 2 ** (attempt + 1))); // back off: 2x, 4x, 8x... the delay
+      // Back off 2x, 4x, 8x... the delay, capped at 90 s unless the site's Retry-After asks for longer.
+      await sleep(Math.max(e.waitMs ?? 0, Math.min(MAX_BACKOFF_MS, rules.delayMs * 2 ** (attempt + 1))));
     }
   }
 }

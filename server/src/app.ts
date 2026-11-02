@@ -239,7 +239,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true }: AppOpti
   /* ------------------------------ rounds ------------------------------ */
   app.post('/api/rounds', requireAuth, async (_req, res) => {
     const profile = await loadProfile(uidOf(res));
-    const { round, looks } = await createRound(repos, profile);
+    const { round, looks } = await createRound(repos, profile, llm);
     res.json({ round: { id: round.id, index: round.index, max: MAX_ROUNDS }, looks, quickTags: QUICK_TAGS });
   });
 

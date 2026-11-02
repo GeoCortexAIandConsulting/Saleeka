@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { allowedBy, parseRobots } from '../src/catalog/http.js';
 import { paletteColors } from '../src/catalog/colors.js';
-import { normalize } from '../src/catalog/normalize.js';
+import { displayTitle, normalize } from '../src/catalog/normalize.js';
 import type { BrandSource, RawItem } from '../src/catalog/sources.js';
 
 const src: BrandSource = { id: 'gul-ahmed', name: 'Gul Ahmed', origin: 'https://example.pk', platform: 'shopify', tier: 'mid' };
@@ -60,6 +60,13 @@ describe('tagging real catalog items', () => {
     expect(p).toMatchObject({ slot: 'main', includesBottom: false, includesDupatta: false, colors: ['black', 'white'] });
   });
 
+  it('lets the title decide over noisy tags (a sale tag "FLAT 50%" is not a shoe)', () => {
+    const suit = ok(raw({ title: '2 Piece Khaddar Suit-Paste Print (Pret)', productType: 'RTW', tags: ['FLAT 20%', 'FLAT 50%', 'Pret', 'SHIRT TROUSERS'], text: 'Colour: Maroon' }));
+    expect(suit.slot).toBe('main');
+    expect(ok(raw({ title: 'Embroidered Shirt', tags: ['Shoes & Bags Sale'], text: 'Colour: Black' })).slot).toBe('main');
+    expect(ok(raw({ title: 'Golden Block Heels', tags: ['Eid Collection Pret'] })).slot).toBe('footwear');
+  });
+
   it('files accessories by type', () => {
     expect(ok(raw({ title: 'Shoulder Bag', productType: "Women's Bags", text: 'Color: Olive Green' }))).toMatchObject({ slot: 'bag', silhouette: 'shoulder bag', colors: ['olive'] });
     expect(ok(raw({ title: 'Golden Khussa', productType: 'Footwear' }))).toMatchObject({ slot: 'footwear', silhouette: 'khussa', colors: ['gold'] });
@@ -87,5 +94,18 @@ describe('tagging real catalog items', () => {
   it('turns product codes into readable titles', () => {
     const p = ok(raw({ title: 'SS23BSP226F', productType: 'Ready to Wear', text: 'Colour: Maroon\nFabric: Khaddar' }));
     expect(p.title).toBe('maroon khaddar kurta');
+    expect(displayTitle('SHIRT (E2376/108/001)', 'white', 'cotton', 'kurta')).toBe('Shirt');
+    expect(displayTitle('Dark Beige Women Shawl-1721512118', 'beige', 'cotton', 'shawl')).toBe('Dark Beige Women Shawl');
+    expect(displayTitle('2 PIECE - PRINTED SUIT - ST2STE-PRET26WV2-64', 'maroon', 'linen', 'suit')).toBe('2 Piece Printed Suit');
+    expect(displayTitle('3 Piece Printed Lawn Suit', 'pink', 'lawn', 'suit')).toBe('3 Piece Printed Lawn Suit');
+  });
+
+  it('takes embellishment from the title, not marketing copy, and fabric from the title first', () => {
+    const printed = ok(raw({ title: '3 Piece Printed Lawn Suit', tags: ['Luxury Lawn'], text: 'A luxury formal look. Colour: Pink' }));
+    expect(printed.embellishment).toBe(1);
+    expect(printed.occasions).toContain('casual');
+    expect(ok(raw({ title: '3 Piece Embroidered Khaddar Suit With Shawl', text: 'Fabric: Organza dupatta\nColour: Black' })).fabric).toBe('khaddar');
+    expect(ok(raw({ title: 'Lawn Slub Shirt (Pret)', text: 'Colour: Black' })).fabric).toBe('lawn');
+    expect(ok(raw({ title: 'Derin Ear Cuffs', productType: 'Jewellery', text: 'Colour: Gold' })).silhouette).toBe('earrings');
   });
 });

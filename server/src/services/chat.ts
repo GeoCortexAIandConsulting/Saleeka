@@ -3,6 +3,7 @@ import type { ChatConstraints, ChatSession, Occasion } from '../types.js';
 import { composeLooks, swapSlot, type ComposeRequest, type ComposedLook } from './composer.js';
 import { factsFor, hydrateLooks, persistLooks, sumPrice, uid, type HydratedLook } from './looks.js';
 import type { Llm } from './llm.js';
+import { styleLooks } from './stylist.js';
 import { AppError } from '../errors.js';
 import type { Slot } from '../types.js';
 
@@ -37,7 +38,7 @@ export function composeWithRelaxation(
   catalog: Parameters<typeof composeLooks>[0],
   profile: ProfileDoc,
   c: ChatConstraints,
-): { looks: ComposedLook[]; notes: string[] } {
+): { looks: ComposedLook[]; notes: string[]; request: ComposeRequest } {
   const base: ComposeRequest = {
     occasion: c.occasion,
     colors: c.colors,
@@ -46,8 +47,9 @@ export function composeWithRelaxation(
     extraModesty: c.extraModesty,
   };
   let looks = composeLooks(catalog, profile, base);
+  let request = base;
   const notes: string[] = [];
-  if (looks.length >= 3) return { looks, notes };
+  if (looks.length >= 3) return { looks, notes, request };
 
   const steps: Array<{ note: string; req: ComposeRequest; applies: boolean }> = [
     { note: 'I widened the brands since few looks matched.', req: { ...base, brands: [] }, applies: c.brands.length > 0 },
@@ -63,11 +65,12 @@ export function composeWithRelaxation(
     const next = composeLooks(catalog, profile, step.req);
     if (next.length > looks.length) {
       looks = next;
+      request = step.req;
       notes.push(step.note);
     }
     if (looks.length >= 3) break;
   }
-  return { looks, notes };
+  return { looks, notes, request };
 }
 
 export async function handleChat(
@@ -112,7 +115,10 @@ export async function handleChat(
   if (!constraints.occasion) constraints.occasion = profile.occasions[0];
 
   const catalog = await repos.products.find();
-  const { looks: composed, notes } = composeWithRelaxation(catalog, profile, constraints);
+  // Rules find which request can be met (relaxing it if needed, and saying so); the stylist styles it.
+  const { looks: ruleLooks, notes, request } = composeWithRelaxation(catalog, profile, constraints);
+  const styled = ruleLooks.length ? await styleLooks(llm, catalog, profile, request) : { looks: [], notes: [], styledByAi: 0 };
+  const composed = styled.looks;
   if (composed.length === 0) {
     const reply =
       'I could not find a complete look for that. Try a higher budget, fewer colour limits, or a different occasion.';
@@ -122,7 +128,11 @@ export async function handleChat(
     return { sessionId: session.id, reply, looks: [], notes, constraints };
   }
 
-  const reasons = await llm.explain(composed.map((c) => factsFor(c, profile)), profile);
+  // The stylist's own notes; looks the rules filled in get an explanation from facts.
+  const missing = composed.filter((_, i) => !styled.notes[i]);
+  const explained = missing.length ? await llm.explain(missing.map((c) => factsFor(c, profile)), profile) : [];
+  let k = 0;
+  const reasons = composed.map((_, i) => styled.notes[i] || explained[k++] || '');
   const looks = await persistLooks(repos, profile.userId, composed, 'chat', reasons);
   const reply = `Here ${looks.length === 1 ? 'is 1 look' : `are ${looks.length} looks`} for your ${constraints.occasion}. Pick one, swap any piece, or tell me what to change.`;
   session.constraints = constraints;

@@ -4,9 +4,10 @@
  *   - "rules":  no model; keyword and pattern parsing plus template explanations (works offline)
  *   - "openai": any OpenAI-compatible server (Ollama, vLLM, Groq, OpenRouter, ...)
  *
- * The model never chooses products. It only (1) turns free text into structured
- * constraints, (2) turns free-text feedback into taste updates, and (3) writes the
- * short "why this suits you" lines from facts we pass in.
+ * The model never invents products or prices. It (1) turns free text into structured constraints,
+ * (2) turns free-text feedback into taste updates, (3) writes the short "why this suits you" lines
+ * from facts we pass in, and (4) acts as the stylist: it composes looks, but only from shortlists of
+ * real, in-stock items that code has already checked, and code validates every pick (services/stylist.ts).
  */
 import { z } from 'zod';
 import { config } from '../config.js';
@@ -33,11 +34,51 @@ export interface LookFacts {
   tasteHits: string[]; // short, verified reasons computed by code
 }
 
+/** One candidate item as the stylist sees it (aliases like "P12" stand in for product ids). */
+export interface StyleItem {
+  id: string;
+  title: string;
+  brand: string;
+  colors: string[];
+  kind: string;
+  finish: 'plain' | 'printed' | 'embroidered' | 'heavily embellished';
+  price: number;
+}
+
+/**
+ * The stylist's brief. Items are compact one-line strings ("P12 | title | brand | colours | kind |
+ * finish | Rs price") to keep the prompt small (hosted models limit tokens per minute).
+ */
+export interface StyleBrief {
+  occasion: string | null;
+  budgetMax: number;
+  requestedColors: string[];
+  shopper: { hijab: boolean; colorsLiked: string[]; styleWords: string[] };
+  outfits: Array<{ item: string; fabric: string; needsBottom: boolean; needsDupatta: boolean; options: Record<string, string[]> }>;
+  count: number;
+}
+
+/** The stylist's answer for one look: aliases from the brief, plus a short stylist's note. */
+export interface StylePick {
+  main: string;
+  bottom?: string | null;
+  dupatta?: string | null;
+  footwear?: string | null;
+  bag?: string | null;
+  jewelry?: string | null;
+  note: string;
+}
+
 export interface Llm {
   readonly name: string;
   parseRequest(message: string, ctx: ParseContext): Promise<ChatConstraints>;
   parseFeedback(text: string): Promise<Feedback>;
   explain(looks: LookFacts[], profile: Profile): Promise<string[]>;
+  /**
+   * Act as the stylist: build complete, coordinated looks from the shortlists in the brief. Returns
+   * null when the provider has no model (the rule composer is used instead). Code validates every pick.
+   */
+  style(brief: StyleBrief): Promise<StylePick[] | null>;
 }
 
 /* ------------------------------ rule-based provider ------------------------------ */
@@ -152,7 +193,46 @@ export class RulesLlm implements Llm {
   async explain(looks: LookFacts[], profile: Profile) {
     return explainRules(looks, profile);
   }
+  async style(): Promise<StylePick[] | null> {
+    return null; // no model: the rule composer builds the looks
+  }
 }
+
+const STYLIST_SYSTEM = `You are Saleeqa's senior fashion stylist for Pakistani women's wear. Build complete, coordinated outfits for the shopper using ONLY the candidate items in the brief, referenced by their ids (like "P12"). Never invent items. Each item is written as "id | title | brand | colours | kind | finish | price".
+
+For each look choose one outfit from "outfits", then from THAT outfit's own "options":
+- a bottom if needsBottom is true,
+- a dupatta/scarf if needsDupatta is true (if the shopper wears hijab, the scarf is mandatory),
+- shoes ("footwear"), a bag and jewellery whenever options exist. A complete look has all of them.
+
+Style like a professional:
+- Match formality: festive or heavily embellished outfits get heels or khussa, a clutch or potli, statement earrings/jhumkay; casual printed lawn/cotton gets flats, sandals or sneakers, a tote or shoulder bag, small earrings.
+- Colour: tonal (shades of one colour), complementary, or neutral/metallic accents. Gold suits jewel tones and warm colours, silver suits pastels and cool colours. Avoid two loud competing colours.
+- Balance: a heavily worked outfit wants a simple dupatta and quiet jewellery; a plain outfit can take a statement dupatta or jewellery.
+- Price balance: accessories should feel in keeping with the outfit, not jarringly cheap or more expensive.
+- The look's total must stay within budgetMax.
+- Make the looks clearly different from each other (different outfits and colour stories). Order: 1 = best match for this shopper, 2 = a fresh direction, 3 = the most budget-friendly that still looks great.
+
+For each look write a stylist's note (at most 35 words) on why the pieces work together and suit the shopper. No prices, no ids in the note.
+
+Reply with ONLY JSON: {"looks":[{"main":"P1","bottom":"P7 or null","dupatta":"P9 or null","footwear":"P20","bag":"P31","jewelry":"P40","note":"..."}]}`;
+
+const stylePicksSchema = z.object({
+  looks: z
+    .array(
+      z.object({
+        main: z.string(),
+        bottom: z.string().nullish(),
+        dupatta: z.string().nullish(),
+        footwear: z.string().nullish(),
+        bag: z.string().nullish(),
+        jewelry: z.string().nullish(),
+        note: z.string().max(600).default(''),
+      }),
+    )
+    .min(1)
+    .max(6),
+});
 
 /* --------------------------- OpenAI-compatible provider --------------------------- */
 
@@ -183,7 +263,7 @@ export class OpenAiCompatibleLlm implements Llm {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  private async chatJson(system: string, user: string): Promise<unknown> {
+  private async chatJson(system: string, user: string, opts: { temperature?: number; timeoutMs?: number } = {}): Promise<unknown> {
     const res = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -192,16 +272,16 @@ export class OpenAiCompatibleLlm implements Llm {
       },
       body: JSON.stringify({
         model: this.model,
-        temperature: 0.2,
+        temperature: opts.temperature ?? 0.2,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },
         ],
         response_format: { type: 'json_object' },
       }),
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 20000),
     });
-    if (!res.ok) throw new Error(`LLM HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`LLM HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 160)}`);
     const data: any = await res.json();
     const text: string = data?.choices?.[0]?.message?.content ?? '';
     const start = text.indexOf('{');
@@ -249,6 +329,16 @@ export class OpenAiCompatibleLlm implements Llm {
       return { ...f, likeColors: f.likeColors.filter((c) => valid.has(c)), dislikeColors: f.dislikeColors.filter((c) => valid.has(c)) };
     } catch {
       return parseFeedbackRules(text);
+    }
+  }
+
+  async style(brief: StyleBrief): Promise<StylePick[] | null> {
+    try {
+      const raw = await this.chatJson(STYLIST_SYSTEM, JSON.stringify(brief), { temperature: 0.5, timeoutMs: 25000 });
+      return stylePicksSchema.parse(raw).looks;
+    } catch (e: any) {
+      console.warn(`AI stylist unavailable, using the rule composer: ${String(e?.message ?? e).slice(0, 200)}`);
+      return null; // the rule composer takes over
     }
   }
 

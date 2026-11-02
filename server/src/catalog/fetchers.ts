@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { Disallowed, locs, politeGet, textOf } from './http.js';
@@ -10,16 +10,28 @@ export interface FetchOptions {
   /** Most product pages to read for page-scraped brands */
   maxPages: number;
   refresh: boolean;
+  /** Use only pages already cached: no network (builds partial catalogs while a fetch is still running) */
+  offline?: boolean;
   log: (msg: string) => void;
 }
 
 /* --------------------------------- Shopify --------------------------------- */
 
-/** Shopify's public product feed: /products.json, 250 products per page. */
+/**
+ * The brand site's public product list (/products.json), 250 products per page, one page every 3 s.
+ * Each page is cached as it arrives, so an interrupted run resumes where it stopped.
+ */
 export async function fetchShopify(src: BrandSource, o: FetchOptions): Promise<RawItem[]> {
   const out: RawItem[] = [];
   for (let page = 1; page <= 80; page++) {
-    const body = await politeGet(`${src.origin}/products.json?limit=250&page=${page}`);
+    // Reused for 12 hours (to resume an interrupted run), then read fresh so stock stays current.
+    const c = cached(o, src.id, `feed-page-${page}`, 12 * 3600_000);
+    let body = c.get();
+    if (!body) {
+      if (o.offline) break; // stop at the first page not fetched yet
+      body = await politeGet(`${src.origin}/products.json?limit=250&page=${page}`, { minDelayMs: 4000 });
+      c.put(body);
+    }
     const products: any[] = JSON.parse(body).products ?? [];
     if (!products.length) break;
     for (const p of products) {
@@ -55,12 +67,13 @@ const WOMEN_URL = /wom[ae]n|ladies|female|unstitched|ready-to-wear|readytowear|p
 const NOT_WOMEN_URL = /\bm[ae]n\b|mens|-men-|man-|boy|girl|kid|baby|infant|junior|home|bed|towel|cushion|curtain|fragrance|mist|perfume|parfum|beauty|cosmetic|candle|gift-?card/i;
 
 /** Gzipped page cache, keyed by brand and a safe file name. */
-function cached(o: FetchOptions, brand: string, key: string) {
+function cached(o: FetchOptions, brand: string, key: string, maxAgeMs = Infinity) {
   const dir = join(o.cacheDir, 'pages', brand);
   mkdirSync(dir, { recursive: true });
   const file = join(dir, key.replace(/[^a-z0-9._-]+/gi, '_').slice(-150) + '.html.gz');
+  const fresh = () => existsSync(file) && Date.now() - statSync(file).mtimeMs < maxAgeMs;
   return {
-    get: () => (!o.refresh && existsSync(file) ? gunzipSync(readFileSync(file)).toString('utf8') : null),
+    get: () => (!o.refresh && fresh() ? gunzipSync(readFileSync(file)).toString('utf8') : null),
     put: (html: string) => writeFileSync(file, gzipSync(html)),
   };
 }
@@ -133,10 +146,11 @@ export function parseSapphire(src: BrandSource, html: string, url: string): RawI
   const images = [...new Set([...html.matchAll(/data-high-src="([^"]+)"/g)].map((m) => m[1]))].filter((s) => s.includes(p.id) || s.includes('/images/'));
   // Description, fabric and size tabs on the product page.
   const panes = [...html.matchAll(/class="tab-pane[^"]*detail-content-pane[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/g)].map((m) => textOf(m[1]));
-  const sizes = [...html.matchAll(/<(?:button|div|span|a)[^>]*class="([^"]*\bsize-(?:item|attribute|value)\b[^"]*)"[^>]*>\s*(?:<span[^>]*>)?\s*([A-Z0-9/-]{1,6})\s*</g)].map((m) => ({
-    title: m[2],
-    available: !/unselectable|disabled|out-of-stock|sold/i.test(m[1]),
-  }));
+  // Size buttons: <div class="size-item"><input class="options-select d-none [not-available]"><span>XS</span>.
+  // Inputs marked "shopthelook" belong to the "shop the look" suggestions, not this product.
+  const sizes = [...html.matchAll(/<div class="size-item"[^>]*>\s*<input([^>]*)>\s*<span[^>]*>\s*([^<]*?)\s*</g)]
+    .filter((m) => !/shopthelook/.test(m[1]) && m[2])
+    .map((m) => ({ title: m[2], available: !/not-available|\bdisabled\b/.test(m[1]) }));
   const pdp = html.slice(html.indexOf('pdp-right') > 0 ? html.indexOf('pdp-right') : 0);
   const soldOut = /class="[^"]*(?:add-to-cart|addToCart)[^"]*"[^>]*disabled|>\s*SOLD OUT\s*</i.test(pdp.slice(0, 40000));
   const price = Number(p.price) || 0;
@@ -152,7 +166,7 @@ export function parseSapphire(src: BrandSource, html: string, url: string): RawI
     text: panes.join('\n'),
     options: sizes.length ? { Size: sizes.map((s) => s.title) } : {},
     variants: sizes.length
-      ? sizes.map((s) => ({ title: s.title, price, compareAt: compare, available: s.available && !soldOut }))
+      ? sizes.map((s) => ({ title: s.title, price, compareAt: compare, available: s.available })) // per-size stock is exact
       : [{ title: 'Default', price, compareAt: compare, available: !soldOut }],
     images,
   };

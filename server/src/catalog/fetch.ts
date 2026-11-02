@@ -8,35 +8,58 @@
  * so re-running only fetches pages it has not seen (unless --refresh).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { CACHE_DIR } from './cache.js';
 import { fetchBareeze, fetchSapphire, fetchShopify, type FetchOptions } from './fetchers.js';
 import { BRAND_SOURCES } from './sources.js';
 
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1];
 const flag = (name: string) => process.argv.includes(`--${name}`);
 
-export const CACHE_DIR = resolve(process.env.CATALOG_CACHE ?? join(process.cwd(), '.catalog-cache'));
-
 async function main() {
   const only = arg('brands')?.split(',');
-  const sources = BRAND_SOURCES.filter((b) => !only || only.includes(b.id));
+  // Offline mode only rebuilds feed brands from their cached pages (page-scraped brands need their sitemap).
+  const sources = BRAND_SOURCES.filter((b) => (!only || only.includes(b.id)) && (!flag('offline') || b.platform === 'shopify'));
   const o: FetchOptions = {
     cacheDir: CACHE_DIR,
     maxPages: Number(arg('max-pages') ?? 450),
     refresh: flag('refresh'),
+    offline: flag('offline'),
     log: (m) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`),
   };
   mkdirSync(join(CACHE_DIR, 'raw'), { recursive: true });
-  // Different sites in parallel; each site still gets one polite request at a time.
-  const results = await Promise.allSettled(
-    sources.map(async (src) => {
+  const save = (id: string, items: unknown[], complete: boolean) =>
+    writeFileSync(join(CACHE_DIR, 'raw', `${id}.json`), JSON.stringify({ brandId: id, fetchedAt: new Date().toISOString(), complete, items }));
+
+  const run = async (src: (typeof sources)[number]): Promise<string> => {
+    try {
       const items = src.platform === 'shopify' ? await fetchShopify(src, o) : src.platform === 'sapphire' ? await fetchSapphire(src, o) : await fetchBareeze(src, o);
-      writeFileSync(join(CACHE_DIR, 'raw', `${src.id}.json`), JSON.stringify({ brandId: src.id, fetchedAt: new Date().toISOString(), items }));
-      return `${src.id}: ${items.length} raw items`;
-    }),
-  );
+      if (!items.length) return `${src.id}: nothing cached yet`; // keep any earlier raw file
+      // An offline build may stop at the first missing page, so it is marked incomplete.
+      save(src.id, items, !o.offline);
+      return `${src.id}: ${items.length} raw items${o.offline ? ' (partial)' : ''}`;
+    } catch (e: any) {
+      // Keep whatever pages were read before the site gave up on us, marked incomplete.
+      if (src.platform === 'shopify') {
+        const partial = await fetchShopify(src, { ...o, offline: true });
+        if (partial.length) save(src.id, partial, false);
+        return `${src.id}: FAILED ${e.message}; kept ${partial.length} items read so far (partial)`;
+      }
+      return `${src.id}: FAILED ${e.message}`;
+    }
+  };
+
+  // Shopify limits requests per visitor across all its stores, so the Shopify brands go one store at
+  // a time; the other platforms run alongside. Each site still gets one polite request at a time.
+  const shopify = sources.filter((s) => s.platform === 'shopify');
+  const others = sources.filter((s) => s.platform !== 'shopify');
+  const results: string[] = [];
+  await Promise.all([
+    (async () => { for (const s of shopify) results.push(await run(s)); })(),
+    ...others.map(async (s) => results.push(await run(s))),
+  ]);
   console.log('\nSummary');
-  results.forEach((r, i) => console.log(r.status === 'fulfilled' ? `  ${r.value}` : `  ${sources[i].id}: FAILED ${r.reason?.message ?? r.reason}`));
+  results.forEach((r) => console.log(`  ${r}`));
 }
 
 main().catch((e) => {

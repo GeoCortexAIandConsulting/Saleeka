@@ -31,20 +31,31 @@ to check the Mongo adapter against your database.
 2. **Ranking rounds** → each rank, quick tag and free-text note updates the taste vector (`services/rounds.ts`).
 3. **Chat** → the language layer turns the message into constraints (occasion, colours, brands, budget).
 4. **Composer** (`services/composer.ts`) is plain code: hard filters (coverage, avoided colours/brands, stock,
-   occasion, budget) → score → assemble each slot → fit budget → choose 3 distinct looks. If fewer than 3 fit it
-   relaxes brands, then colours, then budget by ~25%, and **tells the shopper what it relaxed**.
-5. The model never picks products and never writes prices; it only parses text and phrases explanations from facts.
+   occasion, budget) → score → assemble each slot → fit budget → choose 3 distinct looks. Accessories are matched
+   to the outfit's formality (heels/khussa, clutch, jhumkay for festive; flats, tote, studs for casual) and price
+   level, and every look gets shoes, a bag and jewellery when the catalog has a fitting one. If fewer than 3 looks
+   fit, it relaxes brands, then colours, then budget by ~25%, and **tells the shopper what it relaxed**.
+5. **AI stylist** (`services/stylist.ts`, used for chat and the ranking rounds when a model is configured): code
+   builds shortlists per outfit of real, in-stock items that already pass every hard rule; the model composes
+   complete, coordinated looks from them (formality, colour story, balance, price balance) and writes a stylist's
+   note. Code then checks every pick (must be on that outfit's shortlist, required pieces present, within budget),
+   fills or swaps anything missing, keeps the note only if the look is exactly what the model picked, and falls back
+   to the rule composer for anything it cannot use. **The model never invents products or prices.**
 
 ## Language model
 
 `LLM_PROVIDER=rules` (default) needs no model. Set `LLM_PROVIDER=openai` with `LLM_BASE_URL`, `LLM_MODEL`
-(Ollama, vLLM, Groq, OpenRouter...) to use a model for request parsing, feedback parsing and explanations.
-Model output is validated; on any failure it falls back to the rules provider.
+(Ollama, vLLM, Groq, OpenRouter...) to use a model for request parsing, feedback parsing, explanations and the AI
+stylist. Model output is validated; on any failure it falls back to the rules provider (the server logs
+"AI stylist unavailable" with the reason). Groq's free tier limits tokens per minute; with several shoppers at once
+some looks will come from the rule composer until a paid tier is used.
 
 ## Tests
 
-`npm test` runs 33 tests: modesty rules, composer hard-rule guarantees, LLM parsing and fallbacks, and a full
-API journey (signup → quiz → 4 rounds → chat → swap → save → click-out → partner report → data deletion).
+`npm test` runs the server suite: modesty rules, composer hard-rule guarantees, the AI stylist's validation (a fake
+model that invents ids, borrows items from other outfits and skips pieces), catalog tagging on real examples,
+robots.txt rules, LLM parsing and fallbacks, and a full API journey (signup → quiz → 4 rounds → chat → swap → save
+→ click-out → partner report → data deletion).
 
 ## Real catalogs (prototype only)
 

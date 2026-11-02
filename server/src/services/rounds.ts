@@ -1,6 +1,7 @@
 import type { Repos, ProfileDoc } from '../db/index.js';
 import type { Look, Occasion, RoundRecord } from '../types.js';
-import { composeLooks, type ComposedLook } from './composer.js';
+import { composeLooks, type ComposeRequest, type ComposedLook } from './composer.js';
+import { styleLooks } from './stylist.js';
 import type { Llm } from './llm.js';
 import { persistLooks, uid, hydrateLooks, type HydratedLook } from './looks.js';
 import { addWeight, productFeatures } from './taste.js';
@@ -24,6 +25,7 @@ export type QuickTag = (typeof QUICK_TAGS)[number];
 export async function createRound(
   repos: Repos,
   profile: ProfileDoc,
+  llm?: Llm,
 ): Promise<{ round: RoundRecord; looks: HydratedLook[] }> {
   const previous = await repos.rounds.find({ userId: profile.userId });
   const open = previous.find((r) => !r.completedAt);
@@ -41,11 +43,12 @@ export async function createRound(
     ls.forEach((l) => seenMains.add(l.items.find((i) => i.slot === 'main')!.productId));
   }
   const catalog = await repos.products.find();
-  let composed = composeLooks(catalog, profile, { occasion, excludeMainIds: [...seenMains] });
-  if (composed.length < 3) composed = composeLooks(catalog, profile, { occasion });
-  if (composed.length === 0) {
-    composed = composeLooks(catalog, profile, {}); // any of the user's occasions
-  }
+  // Find a request that can be met, then let the stylist (when a model is set up) style it as complete outfits.
+  let request: ComposeRequest = { occasion, excludeMainIds: [...seenMains] };
+  let composed = composeLooks(catalog, profile, request);
+  if (composed.length < 3) composed = composeLooks(catalog, profile, (request = { occasion }));
+  if (composed.length === 0) composed = composeLooks(catalog, profile, (request = {})); // any of the user's occasions
+  if (llm && composed.length) composed = (await styleLooks(llm, catalog, profile, request)).looks;
   if (composed.length === 0) throw new AppError(422, 'No looks match your preferences yet. Try relaxing coverage or budget.');
 
   // Neutral labels and a rotated order so position and wording do not bias the ranking.
