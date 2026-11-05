@@ -34,7 +34,10 @@ to check the Mongo adapter against your database.
    occasion, budget) → score → assemble each slot → fit budget → choose 3 distinct looks. Accessories are matched
    to the outfit's formality (heels/khussa, clutch, jhumkay for festive; flats, tote, studs for casual) and price
    level, and every look gets shoes, a bag and jewellery when the catalog has a fitting one. If fewer than 3 looks
-   fit, it relaxes brands, then colours, then budget by ~25%, and **tells the shopper what it relaxed**.
+   fit, it relaxes brands, then colours (close shades first, with requested colours still ranked first), then budget by
+   ~25%, and **tells the shopper what it relaxed**. What the shopper says in chat beats the quiz: "modest", "dupatta" or
+   "scarf" guarantees a head covering on every look, and "no dupatta" removes it. Sneakers, totes and shoulder bags
+   never appear at festive occasions, nor clutches, potlis or heavy jewellery in everyday looks.
 5. **AI stylist** (`services/stylist.ts`, used for chat and the ranking rounds when a model is configured): code
    builds shortlists per outfit of real, in-stock items that already pass every hard rule; the model composes
    complete, coordinated looks from them (formality, colour story, balance, price balance) and writes a stylist's

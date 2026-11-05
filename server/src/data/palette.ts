@@ -68,6 +68,32 @@ export function harmony(a: string, b: string): number {
   return 0.2;
 }
 
+function hueOf(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
+const NEARBY_HUE_DEGREES = 35;
+
+/** Colours that genuinely read as a close shade of these (teal for emerald); never neutrals or metallics. */
+export function nearbyColors(names: string[]): string[] {
+  const chromatic = (n: string) => !!PALETTE[n] && !['neutral', 'metallic'].includes(PALETTE[n].family);
+  return COLOR_NAMES.filter(
+    (c) =>
+      chromatic(c) &&
+      !names.includes(c) &&
+      names.some((n) => {
+        if (!chromatic(n)) return false;
+        const gap = Math.abs(hueOf(PALETTE[n].hex) - hueOf(PALETTE[c].hex));
+        return Math.min(gap, 360 - gap) <= NEARBY_HUE_DEGREES;
+      }),
+  );
+}
+
 export function mainColor(colors: string[]): string {
   return colors[0] ?? 'black';
 }

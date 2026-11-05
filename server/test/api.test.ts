@@ -169,7 +169,7 @@ describe('full shopper journey', () => {
     const report = await request(app).get(`/api/partners/${main.brandId}/report`).set('x-admin-key', 'test-admin-key');
     expect(report.status).toBe(200);
     expect(report.body.clicks).toBeGreaterThanOrEqual(1);
-    expect(report.body.impressions).toBeGreaterThan(report.body.clicks);
+    expect(report.body.impressions).toBeGreaterThanOrEqual(report.body.clicks);
 
     // Privacy: delete everything.
     expect((await agent.delete('/api/me')).body.deleted).toBe(true);

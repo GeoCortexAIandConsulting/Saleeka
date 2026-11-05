@@ -15,6 +15,8 @@ export const config = {
     baseUrl: process.env.LLM_BASE_URL ?? 'http://localhost:11434/v1',
     model: process.env.LLM_MODEL ?? 'qwen2.5:7b-instruct',
     apiKey: process.env.LLM_API_KEY ?? '',
+    /** Slow local models need longer than a hosted one; past this, the rule composer takes over. */
+    styleTimeoutMs: Number(process.env.LLM_STYLE_TIMEOUT_MS) || 25000,
   },
 };
 

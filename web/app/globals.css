@@ -2,20 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --ivory: #fbf7f2;
+  --sand: #f1e9df;
+  --line: #e6dacb;
+  --ink: #2b1b2e;
+  --night: #1e1020;
+  --plum: #6b2d5c;
+  --plum-dark: #4f1f44;
+  --plum-soft: #f3e8f0;
+  --gold: #b8893b;
+  --gold-light: #e2c07a;
+  --gold-deep: #80591a;
+  --ease-silk: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 html { -webkit-text-size-adjust: 100%; }
 /* Never wider than the screen: sideways overflow makes phones zoom out and hides bottom controls. */
 html, body { overflow-x: clip; }
-body { @apply bg-ivory text-ink antialiased; font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+body { @apply bg-ivory font-sans text-ink antialiased; }
 h1, h2, h3 { @apply font-display; }
+/* Visible focus for every keyboard user; gold reads on both ivory and night. */
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
+::selection { background: var(--plum-soft); color: var(--plum-dark); }
 
 @layer components {
-  .btn { @apply inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]; }
+  .btn { @apply inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-semibold transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]; transition-timing-function: var(--ease-silk); }
   .btn-primary { @apply bg-plum text-white hover:bg-plum-dark; }
-  .btn-ghost { @apply border border-line bg-white text-ink hover:bg-sand; }
-  .card { @apply rounded-2xl border border-line bg-white p-4 shadow-sm; }
-  .chip { @apply inline-flex items-center rounded-full border border-line bg-white px-3 py-2 text-sm min-h-[40px]; }
+  .btn-ghost { @apply border border-line bg-white text-ink hover:border-gold hover:bg-ivory; }
+  .btn-light { @apply bg-ivory text-plum-dark hover:bg-white; }
+  .btn-outline-light { @apply border border-white/60 text-white hover:border-white hover:bg-white/10; }
+  .card { @apply rounded-3xl border border-line bg-white p-4; box-shadow: 0 10px 30px -22px rgb(79 31 68 / 0.35); }
+  .chip { @apply inline-flex items-center rounded-full border border-line bg-white px-3 py-2 text-sm min-h-[40px] transition-colors duration-200 hover:border-gold; }
   .chip-on { @apply border-plum bg-plum-soft text-plum-dark font-semibold; }
   /* Page container: fills the screen with comfortable side margins, capped on very wide monitors. */
   .page { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
-  .input { @apply w-full rounded-xl border border-line bg-white px-4 py-3 text-base outline-none focus:border-plum min-h-[44px]; }
+  .input { @apply w-full rounded-2xl border border-line bg-white px-4 py-3 text-base outline-none transition-colors duration-200 focus:border-plum min-h-[44px]; }
+  .eyebrow { @apply text-xs font-semibold uppercase tracking-[0.22em] text-gold-deep; }
+  .hairline { height: 1px; background: linear-gradient(90deg, transparent, var(--gold), transparent); }
+}
+
+/* Landing page ---------------------------------------------------------------------------------- */
+
+/* Rises in as it scrolls into view, using CSS alone: browsers without scroll timelines just show it. */
+@supports (animation-timeline: view()) {
+  .reveal { animation: rise linear both; animation-timeline: view(); animation-range: entry 0% entry 32%; }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cue { 0%, 100% { transform: scaleY(0.35); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } }
+.scroll-cue { animation: cue 2.6s var(--ease-silk) infinite; }
+
+/* Stages are the sections tied to a 3D scene. Without 3D each is a normal section with a 2D picture. */
+.stage { position: relative; z-index: 10; background: var(--night); color: #fff; overflow: clip; }
+.stage-glow { background: radial-gradient(90% 70% at 75% 40%, rgb(107 45 92 / 0.55), transparent 70%), var(--night); }
+.stage-inner { display: flex; min-height: 88svh; align-items: center; padding-block: 4.5rem; }
+
+/* With 3D the stage turns transparent over the fixed canvas and pins its text while the scene plays. */
+[data-mode='3d'] .stage { height: 240svh; background: transparent; overflow: visible; }
+[data-mode='3d'] .stage-inner { position: sticky; top: 0; height: 100svh; min-height: 0; padding-block: 0; }
+[data-mode='3d'] .stage-art { display: none; }
+@media (max-width: 899px) {
+  /* On phones the figure sits above the text, and a soft fade keeps the text readable. */
+  [data-mode='3d'] .stage-inner { align-items: flex-end; }
+  [data-mode='3d'] .stage-copy { width: 100vw; margin-inline: -1rem; padding: 7rem 1.25rem 2.5rem; background: linear-gradient(to top, var(--night) 62%, transparent); }
+}
+.fabric { border-radius: 1.25rem 1.25rem 1.25rem 3rem; box-shadow: inset 0 0 40px rgb(255 255 255 / 0.12); }
+
+/* Smooth scrolling (Lenis, MIT): the rules its docs ask for. */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: clip; }
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  @supports (animation-timeline: view()) {
+    .reveal { animation-name: fade; }
+  }
+  .scroll-cue { animation: none; }
+  .btn, .chip, .input { transition: none; }
 }

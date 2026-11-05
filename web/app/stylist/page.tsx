@@ -19,7 +19,7 @@ const STARTERS = [
   'Mehndi outfit, green, under 25k',
   'Office look, soft colours, under 15k',
   'Eid outfit, full sleeves, any brand',
-  'Walima, pastel, from Demo Studio',
+  'Walima, pastel, modest, under 40k',
 ];
 
 export default function Stylist() {

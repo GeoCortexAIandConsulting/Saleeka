@@ -117,6 +117,7 @@ export default function LookCard({ look, rank, onSelect, selected, onSave, onSwa
               <div className="truncate text-xs text-ink/60">
                 {product.brandName}
                 {slot === 'main' && !product.stitched ? ' · unstitched fabric' : ''}
+                {slot === 'main' && product.includesDupatta ? ' · dupatta included' : ''}
               </div>
             </div>
             <div className="shrink-0 text-right">

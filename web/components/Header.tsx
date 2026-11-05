@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import Logo from '@/components/Logo';
 
 const LINKS = [
   { href: '/stylist', label: 'Stylist' },
@@ -16,8 +17,16 @@ export default function Header({ signedIn = true }: { signedIn?: boolean }) {
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-ivory/95 backdrop-blur">
       <div className="page flex items-center justify-between gap-2 py-3">
-        <Link href={signedIn ? '/stylist' : '/'} className="font-display text-2xl font-bold tracking-tight text-plum">
-          Saleeqa
+        <Link href={signedIn ? '/stylist' : '/'} aria-label="Saleeqa" className="flex shrink-0 items-center">
+          {/* The signed-in menu fills a phone's width, so there the emblem stands alone. */}
+          {signedIn ? (
+            <>
+              <Logo variant="mark" className="sm:hidden" />
+              <Logo className="hidden sm:inline-flex" />
+            </>
+          ) : (
+            <Logo />
+          )}
         </Link>
         {signedIn ? (
           <nav className="flex items-center gap-0.5 text-sm sm:gap-1">

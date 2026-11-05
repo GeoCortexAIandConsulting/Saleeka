@@ -175,6 +175,10 @@ export interface ChatConstraints {
   brands: string[];
   budgetMax?: number;
   extraModesty?: boolean;
+  /** Said in chat, so it overrides the quiz: true = add a dupatta/scarf, false = "no dupatta". */
+  wantsDupatta?: boolean;
+  /** Asked for a scarf or hijab: the head covering must be a scarf, even with a 3-piece. */
+  wantsScarf?: boolean;
 }
 
 export interface ChatSession {

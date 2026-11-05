@@ -41,8 +41,8 @@ export function buildBrief(options: StylingOption[], profile: Profile, req: Comp
   const brief: StyleBrief = {
     occasion: req.occasion ?? null,
     budgetMax: maxBudget,
-    requestedColors: req.colors ?? [],
-    shopper: { hijab: profile.hijab, colorsLiked: profile.colorsLiked, styleWords: profile.styleWords },
+    requestedColors: req.preferColors ?? req.colors ?? [],
+    shopper: { hijab: profile.hijab || !!req.wantsScarf, colorsLiked: profile.colorsLiked, styleWords: profile.styleWords },
     outfits: options.map((o) => ({
       item: item(o.main),
       fabric: o.main.fabric,
@@ -75,7 +75,10 @@ export function validatePick(
   let changed = false; // true when code had to fill, swap or drop a piece (the note may no longer fit)
   for (const slot of ACCESSORY_SLOTS) {
     const allowed = option.options[slot] ?? [];
-    if (!allowed.length) continue;
+    if (!allowed.length) {
+      if (pick[slot]) changed = true; // named a piece this outfit does not take: its note may mention it
+      continue;
+    }
     const chosen = byAlias.get(String(pick[slot] ?? ''));
     // Only items from this outfit's own shortlist; otherwise use the shortlist's best.
     const product = chosen && allowed.some((a) => a.id === chosen.id) ? chosen : null;
@@ -84,10 +87,10 @@ export function validatePick(
     else if (needed) {
       items.push({ slot, product: allowed[0] });
       changed = true;
-    }
+    } else if (pick[slot]) changed = true;
   }
   if (option.needs.bottom && !items.some((i) => i.slot === 'bottom')) return null;
-  if (option.needs.dupatta && profile.hijab && !items.some((i) => i.slot === 'dupatta')) return null;
+  if (option.needs.dupatta && !items.some((i) => i.slot === 'dupatta')) return null;
 
   // Over budget: cheaper options from the same shortlist first, then drop jewellery, then the bag.
   for (const slot of ACCESSORY_SLOTS) {

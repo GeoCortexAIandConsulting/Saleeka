@@ -4,7 +4,7 @@
  * score candidates -> assemble each slot -> fit the budget -> choose 3 distinct looks.
  */
 import { FORMAL_OCCASIONS, type Occasion, type Product, type Profile, type Slot } from '../types.js';
-import { PALETTE, harmony } from '../data/palette.js';
+import { PALETTE, harmony, nearbyColors } from '../data/palette.js';
 import { minModestyFor } from './modesty.js';
 import { tasteScore } from './taste.js';
 
@@ -12,10 +12,15 @@ export interface ComposeRequest {
   occasion?: Occasion;
   /** Colour names the main piece should contain (any of). */
   colors?: string[];
+  /** The colours actually asked for, when `colors` was widened: these rank first, close shades next. */
+  preferColors?: string[];
   /** Brand ids the main piece should come from (any of). */
   brands?: string[];
   budgetMax?: number;
   extraModesty?: boolean;
+  /** Said in chat, so it overrides the quiz answer. */
+  wantsDupatta?: boolean;
+  wantsScarf?: boolean;
   excludeMainIds?: string[];
   season?: 'summer' | 'winter';
   count?: number;
@@ -60,12 +65,28 @@ function mainScore(p: Product, profile: Profile, req: ComposeRequest, season: 's
   let s = tasteScore(profile.taste, p);
   s += brandBonus(p, profile);
   s += seasonPenalty(p, season);
-  if (req.colors?.length && p.colors.some((c) => req.colors!.includes(c))) s += 0.3;
+  // Requested colours first, and an outfit that is mainly that colour above one that only has a touch of it.
+  const asked = req.preferColors?.length ? req.preferColors : req.colors;
+  if (asked?.length) {
+    if (asked.includes(p.colors[0])) s += 1.5;
+    else if (p.colors.some((c) => asked.includes(c))) s += 0.9;
+    else if (p.colors.some((c) => nearbyColors(asked).includes(c))) s += 0.5;
+  }
+  // A festive occasion should look festive: among outfits that qualify, prefer the dressier ones.
+  if (req.occasion && FORMAL_OCCASIONS.includes(req.occasion)) s += 0.15 * p.embellishment;
   return s;
 }
 
 const DRESSY = new Set(['heel', 'khussa', 'clutch', 'potli', 'jhumkay', 'necklace set', 'maang tikka']);
 const CASUAL_KIND = new Set(['sneaker', 'flat', 'sandal', 'tote', 'shoulder bag']);
+const TOO_CASUAL_FOR_FESTIVE = new Set(['sneaker', 'tote', 'shoulder bag']);
+const TOO_DRESSY_FOR_DAYTIME = new Set(['clutch', 'potli', 'jhumkay', 'necklace set', 'maang tikka']);
+
+/** Hard rule: better a look without a bag than sneakers at Eid or a potli at the office. */
+function suitsOccasion(p: Product, occasion: Occasion | undefined): boolean {
+  if (!occasion) return true;
+  return !(FORMAL_OCCASIONS.includes(occasion) ? TOO_CASUAL_FOR_FESTIVE : TOO_DRESSY_FOR_DAYTIME).has(p.silhouette);
+}
 
 /**
  * How dressed-up a piece is: 0 casual, 1 smart, 2 festive, 3 formal. Mains go by embellishment and
@@ -121,9 +142,15 @@ function pickBest(
   return best;
 }
 
-function wantsDupatta(main: Product, profile: Profile, occasion: Occasion | undefined): boolean {
-  if (main.silhouette === 'western') return profile.hijab;
-  if (profile.hijab) return true;
+function scarfOnly(profile: Profile, req: ComposeRequest): boolean {
+  return profile.hijab || !!req.wantsScarf;
+}
+
+function wantsDupatta(main: Product, profile: Profile, occasion: Occasion | undefined, req: ComposeRequest): boolean {
+  if (scarfOnly(profile, req)) return true;
+  // What the shopper just said beats the quiz answer.
+  if (req.wantsDupatta !== undefined) return req.wantsDupatta && !main.includesDupatta;
+  if (main.silhouette === 'western') return false;
   if (profile.dupatta === 'always') return !main.includesDupatta;
   if (profile.dupatta === 'formal') {
     return !main.includesDupatta && !!occasion && FORMAL_OCCASIONS.includes(occasion);
@@ -148,14 +175,17 @@ function budgetFit(sum: number, profile: Profile, maxBudget: number): number {
 function prepare(catalog: Product[], profile: Profile, req: ComposeRequest, now: Date) {
   const season = req.season ?? currentSeason(now);
   const maxBudget = req.budgetMax ?? profile.budgetMax;
-  const coverage = Math.min(5, profile.coverage + (req.extraModesty ? 1 : 0));
+  // "Modest" in chat means actually modest, even for a shopper whose quiz coverage is low.
+  const coverage = req.extraModesty ? Math.min(5, Math.max(4, profile.coverage + 1)) : profile.coverage;
   const minModesty = minModestyFor(coverage);
   const occasion = req.occasion;
-  const usable = catalog.filter((p) => p.inStock && !avoidedBy(p, profile));
+  const usable = catalog.filter((p) => p.inStock && !avoidedBy(p, profile) && suitsOccasion(p, occasion));
   const bySlot = (slot: Slot) => usable.filter((p) => p.slot === slot);
   const strictBottoms = bySlot('bottom').filter((p) => p.modesty >= (minModesty >= 3.5 ? 5 : minModesty >= 2.5 ? 3 : 0));
   const mains = bySlot('main')
     .filter((p) => p.modesty >= minModesty)
+    // Someone asking for modesty or a head covering is not asking for a midi dress with a scarf on top.
+    .filter((p) => !(req.extraModesty || req.wantsDupatta || req.wantsScarf) || p.silhouette !== 'western')
     .filter((p) => fitsOccasion(p, occasion, profile))
     .filter((p) => !req.excludeMainIds?.includes(p.id))
     .filter((p) => !req.colors?.length || p.colors.some((c) => req.colors!.includes(c)))
@@ -214,16 +244,16 @@ export function stylingOptions(
         .sort((a, b) => b.s - a.s)
         .slice(0, perSlot)
         .map((x) => x.p);
-    const needs = { bottom: !main.includesBottom, dupatta: wantsDupatta(main, profile, occasion) };
+    const needs = { bottom: !main.includesBottom, dupatta: wantsDupatta(main, profile, occasion, req) };
     const o: StylingOption['options'] = {};
     if (needs.bottom) o.bottom = rank(strictBottoms);
-    if (needs.dupatta) o.dupatta = rank(bySlot('dupatta').filter((d) => (profile.hijab ? d.silhouette === 'scarf' : true)));
+    if (needs.dupatta) o.dupatta = rank(bySlot('dupatta').filter((d) => (scarfOnly(profile, req) ? d.silhouette === 'scarf' : true)));
     o.footwear = rank(bySlot('footwear'));
     o.bag = rank(bySlot('bag'));
     o.jewelry = rank(bySlot('jewelry'));
     // Skip outfits that cannot be completed at all.
     if (needs.bottom && !o.bottom?.length) continue;
-    if (needs.dupatta && profile.hijab && !o.dupatta?.length) continue;
+    if (needs.dupatta && !o.dupatta?.length) continue;
     options.push({ main, score: s, needs, options: o });
   }
   return { options, maxBudget, occasion };
@@ -257,36 +287,45 @@ export function composeLooks(
       add('bottom', best(strictBottoms));
       if (!items.some((i) => i.slot === 'bottom')) return null; // no valid bottom for this top
     }
-    if (wantsDupatta(main, profile, occasion)) {
-      add('dupatta', best(bySlot('dupatta').filter((d) => (profile.hijab ? d.silhouette === 'scarf' : true))));
-      // A shopper who wears hijab must never be shown a look without a scarf.
-      if (profile.hijab && !items.some((i) => i.slot === 'dupatta')) return null;
+    if (wantsDupatta(main, profile, occasion, req)) {
+      add('dupatta', best(bySlot('dupatta').filter((d) => (scarfOnly(profile, req) ? d.silhouette === 'scarf' : true))));
+      // A shopper who wants one must never be shown a look without a dupatta or scarf.
+      if (!items.some((i) => i.slot === 'dupatta')) return null;
     }
     // A complete look: shoes, a bag and jewellery whenever the catalog has a fitting one.
     add('footwear', best(bySlot('footwear').filter((f) => fitsOccasion(f, occasion, profile))) ?? best(bySlot('footwear')));
     add('bag', best(bySlot('bag').filter((b) => fitsOccasion(b, occasion, profile))) ?? best(bySlot('bag')));
     add('jewelry', best(bySlot('jewelry').filter((j) => fitsOccasion(j, occasion, profile))) ?? best(bySlot('jewelry')));
 
-    // Fit the budget: swap optional pieces for cheaper compatible ones, then drop them.
+    // Fit the budget: try cheaper versions of every piece first, so nothing is lost if a cheaper one
+    // would do. Only then drop the purely optional pieces.
     for (const slot of OPTIONAL_DROP_ORDER) {
       if (total(items) <= maxBudget) break;
       const idx = items.findIndex((i) => i.slot === slot);
       if (idx < 0) continue;
+      const others = total(items) - items[idx].product.price;
       const cheaper = bySlot(slot)
         .filter((c) => c.price < items[idx].product.price && !taken.has(c.id))
         .filter((c) => harmony(main.colors[0], c.colors[0]) >= 0.6)
         .filter((c) => slot !== 'bottom' || strictBottoms.some((b) => b.id === c.id))
-        .sort((a, b) => b.price - a.price)[0]; // the priciest option that is still cheaper
-      if (cheaper && total(items) - items[idx].product.price + cheaper.price <= maxBudget) {
-        taken.add(cheaper.id);
-        items[idx] = { slot, product: cheaper };
-      } else if (slot === 'jewelry' || slot === 'bag') {
-        items.splice(idx, 1); // purely optional
+        .filter((c) => slot !== 'dupatta' || !scarfOnly(profile, req) || c.silhouette === 'scarf')
+        .sort((a, b) => b.price - a.price);
+      // The priciest option that fits the budget, or else the cheapest, to free up the most.
+      const next = cheaper.find((c) => others + c.price <= maxBudget) ?? cheaper[cheaper.length - 1];
+      if (next) {
+        taken.add(next.id);
+        items[idx] = { slot, product: next };
       }
+    }
+    for (const slot of ['jewelry', 'bag'] as Slot[]) {
+      if (total(items) <= maxBudget) break;
+      const idx = items.findIndex((i) => i.slot === slot);
+      if (idx >= 0) items.splice(idx, 1);
     }
     const sum = total(items);
     if (sum > maxBudget) return null;
-    const score = ms + 0.5 * (accN ? accScore / accN : 0) + 0.5 * budgetFit(sum, profile, maxBudget);
+    const score =
+      ms + 0.5 * (accN ? accScore / accN : 0) + 0.5 * budgetFit(sum, profile, maxBudget) - MISSING_PIECE_PENALTY * missingPieces({ items });
     return { label: '', occasion: occasion ?? null, items, total: sum, score };
   };
 
@@ -311,6 +350,13 @@ export function composeLooks(
 
 function mainOf(l: ComposedLook): Product {
   return l.items[0].product;
+}
+
+const MISSING_PIECE_PENALTY = 0.3;
+
+/** How many of shoes, bag and jewellery a look lacks: complete looks rank above sparse ones. */
+function missingPieces(l: Pick<ComposedLook, 'items'>): number {
+  return (['footwear', 'bag', 'jewelry'] as Slot[]).filter((slot) => !l.items.some((i) => i.slot === slot)).length;
 }
 
 function familyOf(p: Product): string {
@@ -352,7 +398,8 @@ function chooseDistinct(looks: ComposedLook[], count: number): ComposedLook[] {
   if (count < 3) return chosen;
 
   const valueCandidates = remaining().filter((l) => l.score >= best.score * 0.6 && l.total < best.total);
-  const value = valueCandidates.sort((a, b) => a.total - b.total || b.score - a.score)[0];
+  // The cheapest complete look, not simply the look with the fewest pieces.
+  const value = valueCandidates.sort((a, b) => missingPieces(a) - missingPieces(b) || a.total - b.total || b.score - a.score)[0];
   if (value) {
     value.label = 'Smart value';
     chosen.push(value);
@@ -374,6 +421,7 @@ export function swapSlot(
   slot: Slot,
   occasion: Occasion | undefined,
   maxBudget: number,
+  req: ComposeRequest = {},
 ): Array<{ slot: Slot; product: Product }> | null {
   if (slot === 'main') return null; // main swaps re-compose the whole look (see chat service)
   const main = current.find((i) => i.slot === 'main')?.product;
@@ -383,9 +431,9 @@ export function swapSlot(
   const minModesty = minModestyFor(profile.coverage);
   const pool = catalog
     .filter((p) => p.slot === slot && p.inStock && !avoidedBy(p, profile))
-    .filter((p) => fitsOccasion(p, occasion, profile))
+    .filter((p) => fitsOccasion(p, occasion, profile) && suitsOccasion(p, occasion))
     .filter((p) => slot !== 'bottom' || p.modesty >= (minModesty >= 3.5 ? 5 : minModesty >= 2.5 ? 3 : 0))
-    .filter((p) => slot !== 'dupatta' || !profile.hijab || p.silhouette === 'scarf')
+    .filter((p) => slot !== 'dupatta' || !scarfOnly(profile, req) || p.silhouette === 'scarf')
     .filter((p) => total(current) - (old?.price ?? 0) + p.price <= maxBudget);
   const next = pickBest(pool, main, profile, occasion, taken, new Set(old ? [old.id] : []));
   if (!next) return null;

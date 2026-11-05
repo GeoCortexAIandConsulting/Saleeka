@@ -144,7 +144,23 @@ export function parseRequestRules(message: string, ctx: ParseContext): ChatConst
   }
   const budget = parseBudget(message);
   if (budget) out.budgetMax = budget;
-  if (/\b(modest|covered|full sleeve|full sleeves|hijab|abaya|sleeves)\b/i.test(message)) out.extraModesty = true;
+  return { ...out, ...parseCoverage(message) };
+}
+
+// Covers common spellings: dupatta, duppata, dopatta, dupata...
+const HEAD_COVER = String.raw`d[ou]p+at+a|hijaab|hijab|headscarf|scarf|head ?cover(?:ing)?|chadd?ar|chaadar|shawl`;
+const REFUSED_COVER = new RegExp(String.raw`\b(?:no|not|without|bina|skip)\s+(?:a\s+|any\s+|the\s+)?(?:${HEAD_COVER})\b|\b(?:${HEAD_COVER})\s+(?:nahi|nahin|nai)\b`, 'gi');
+
+/** Modesty and head-covering wishes. Refusals ("no dupatta") are read first so they do not count as requests. */
+function parseCoverage(message: string): Pick<ChatConstraints, 'extraModesty' | 'wantsDupatta' | 'wantsScarf'> {
+  const refused = REFUSED_COVER.test(message);
+  REFUSED_COVER.lastIndex = 0;
+  const text = message.replace(REFUSED_COVER, ' ');
+  const out: Pick<ChatConstraints, 'extraModesty' | 'wantsDupatta' | 'wantsScarf'> = {};
+  if (/\b(modest|modesty|covered|full sleeves?|hijab|hijaab|abaya|sleeves|parda|pardah|purdah)\b/i.test(text)) out.extraModesty = true;
+  if (refused) out.wantsDupatta = false;
+  else if (new RegExp(String.raw`\b(?:modest|modesty|covered|abaya|parda|pardah|purdah|${HEAD_COVER})\b`, 'i').test(text)) out.wantsDupatta = true;
+  if (!refused && /\b(hijab|hijaab|headscarf|scarf|head ?cover(ing)?)\b/i.test(text)) out.wantsScarf = true;
   return out;
 }
 
@@ -242,6 +258,8 @@ const constraintsSchema = z.object({
   brands: z.array(z.string()).default([]),
   budgetMax: z.number().positive().nullish(),
   extraModesty: z.boolean().default(false),
+  wantsDupatta: z.boolean().nullish(),
+  wantsScarf: z.boolean().default(false),
 });
 
 const feedbackSchema = z.object({
@@ -298,7 +316,8 @@ export class OpenAiCompatibleLlm implements Llm {
           `Reply with ONLY a JSON object: {"occasion": one of ${OCCASIONS.join('|')} or null, ` +
           `"colors": array of colour names from [${COLOR_NAMES.join(', ')}], "brands": array of brand ids from ` +
           `${JSON.stringify(ctx.brands.map((b) => ({ id: b.id, name: b.name })))}, "budgetMax": number in PKR or null, ` +
-          `"extraModesty": boolean}. Never invent values that the message does not imply.`,
+          `"extraModesty": boolean, "wantsDupatta": true if she asks for a dupatta, scarf, shawl or a modest look, false if she says no dupatta, otherwise null, ` +
+          `"wantsScarf": true if she asks for a scarf or hijab}. Never invent values that the message does not imply.`,
         message,
       );
       const parsed = constraintsSchema.parse(raw);
@@ -310,6 +329,9 @@ export class OpenAiCompatibleLlm implements Llm {
         brands: [...new Set([...parsed.brands.filter((b) => brandIds.has(b)), ...rules.brands])],
         budgetMax: parsed.budgetMax ?? rules.budgetMax,
         extraModesty: parsed.extraModesty || rules.extraModesty,
+        // Rules go first here: a clear "no dupatta" or "modest" in the text is not left to the model.
+        wantsDupatta: rules.wantsDupatta ?? parsed.wantsDupatta ?? undefined,
+        wantsScarf: rules.wantsDupatta === false ? false : parsed.wantsScarf || rules.wantsScarf,
       };
     } catch {
       return rules;
@@ -334,7 +356,7 @@ export class OpenAiCompatibleLlm implements Llm {
 
   async style(brief: StyleBrief): Promise<StylePick[] | null> {
     try {
-      const raw = await this.chatJson(STYLIST_SYSTEM, JSON.stringify(brief), { temperature: 0.5, timeoutMs: 25000 });
+      const raw = await this.chatJson(STYLIST_SYSTEM, JSON.stringify(brief), { temperature: 0.5, timeoutMs: config.llm.styleTimeoutMs });
       return stylePicksSchema.parse(raw).looks;
     } catch (e: any) {
       console.warn(`AI stylist unavailable, using the rule composer: ${String(e?.message ?? e).slice(0, 200)}`);

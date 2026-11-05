@@ -1,5 +1,6 @@
 import type { Repos, ProfileDoc } from '../db/index.js';
 import type { ChatConstraints, ChatSession, Occasion } from '../types.js';
+import { nearbyColors } from '../data/palette.js';
 import { composeLooks, swapSlot, type ComposeRequest, type ComposedLook } from './composer.js';
 import { factsFor, hydrateLooks, persistLooks, sumPrice, uid, type HydratedLook } from './looks.js';
 import type { Llm } from './llm.js';
@@ -25,7 +26,42 @@ export function mergeConstraints(prev: ChatConstraints, next: ChatConstraints): 
     brands: next.brands.length ? next.brands : prev.brands,
     budgetMax: next.budgetMax ?? prev.budgetMax,
     extraModesty: next.extraModesty || prev.extraModesty,
+    wantsDupatta: next.wantsDupatta ?? prev.wantsDupatta,
+    // "No dupatta" takes back an earlier request for a scarf.
+    wantsScarf: next.wantsDupatta === false ? false : next.wantsScarf || prev.wantsScarf,
   };
+}
+
+function requestFrom(c: ChatConstraints): ComposeRequest {
+  return {
+    occasion: c.occasion,
+    colors: c.colors,
+    brands: c.brands,
+    budgetMax: c.budgetMax,
+    extraModesty: c.extraModesty,
+    wantsDupatta: c.wantsDupatta,
+    wantsScarf: c.wantsScarf,
+  };
+}
+
+function plainList(names: string[]): string {
+  const shown = names.slice(0, 3);
+  return shown.length > 1 ? `${shown.slice(0, -1).join(', ')} or ${shown[shown.length - 1]}` : shown[0];
+}
+
+/** Says exactly how the looks differ from the colours asked for; never a vague "nearby colours". */
+function colourNote(looks: ComposedLook[], asked: string[]): string | null {
+  const has = (l: ComposedLook, names: string[]) => l.items[0].product.colors.some((c) => names.includes(c));
+  const near = nearbyColors(asked);
+  const exact = looks.filter((l) => has(l, asked)).length;
+  if (exact === looks.length) return null;
+  const others = looks.filter((l) => !has(l, asked));
+  const filler = others.every((l) => has(l, near))
+    ? `close shades (${plainList([...new Set(others.flatMap((l) => l.items[0].product.colors.filter((c) => near.includes(c))))])})`
+    : 'other colours';
+  return exact === 0
+    ? `Nothing in ${plainList(asked)} fits this request right now, so these use ${filler}.`
+    : `Only ${exact} ${exact === 1 ? 'look' : 'looks'} in ${plainList(asked)} ${exact === 1 ? 'fits' : 'fit'} this request, so I added ${filler}.`;
 }
 
 const OCCASION_SUGGESTIONS: Occasion[] = ['office', 'eid', 'mehndi', 'baraat', 'party', 'casual'];
@@ -39,24 +75,21 @@ export function composeWithRelaxation(
   profile: ProfileDoc,
   c: ChatConstraints,
 ): { looks: ComposedLook[]; notes: string[]; request: ComposeRequest } {
-  const base: ComposeRequest = {
-    occasion: c.occasion,
-    colors: c.colors,
-    brands: c.brands,
-    budgetMax: c.budgetMax,
-    extraModesty: c.extraModesty,
-  };
+  const base = requestFrom(c);
   let looks = composeLooks(catalog, profile, base);
   let request = base;
   const notes: string[] = [];
   if (looks.length >= 3) return { looks, notes, request };
 
-  const steps: Array<{ note: string; req: ComposeRequest; applies: boolean }> = [
+  // Requested colours always stay first (preferColors): widening only fills the gaps around them.
+  const preferColors = c.colors;
+  const steps: Array<{ note?: string; req: ComposeRequest; applies: boolean }> = [
     { note: 'I widened the brands since few looks matched.', req: { ...base, brands: [] }, applies: c.brands.length > 0 },
-    { note: 'I included nearby colours since few looks matched.', req: { ...base, brands: [], colors: [] }, applies: c.colors.length > 0 },
+    { req: { ...base, brands: [], colors: [...c.colors, ...nearbyColors(c.colors)], preferColors }, applies: c.colors.length > 0 },
+    { req: { ...base, brands: [], colors: [], preferColors }, applies: c.colors.length > 0 },
     {
       note: `I stretched your budget by about 25% to find more options.`,
-      req: { ...base, brands: [], colors: [], budgetMax: Math.round(((c.budgetMax ?? profile.budgetMax) * 1.25) / 500) * 500 },
+      req: { ...base, brands: [], colors: [], preferColors, budgetMax: Math.round(((c.budgetMax ?? profile.budgetMax) * 1.25) / 500) * 500 },
       applies: true,
     },
   ];
@@ -66,10 +99,12 @@ export function composeWithRelaxation(
     if (next.length > looks.length) {
       looks = next;
       request = step.req;
-      notes.push(step.note);
+      if (step.note) notes.push(step.note);
     }
     if (looks.length >= 3) break;
   }
+  const colours = c.colors.length && looks.length ? colourNote(looks, c.colors) : null;
+  if (colours) notes.push(colours);
   return { looks, notes, request };
 }
 
@@ -153,19 +188,30 @@ export async function swapLookItem(
   const [hydrated] = await hydrateLooks(repos, [look]);
   const catalog = await repos.products.find();
   const occasion = look.occasion ?? undefined;
+  // A swap must keep honouring what the shopper asked for in this chat.
+  const sessions = await repos.sessions.find({ userId: profile.userId });
+  const session = sessions.find((s) => s.lookIds.includes(lookId));
+  const asked: ComposeRequest = session ? { ...requestFrom(session.constraints), occasion } : { occasion };
 
   if (slot === 'main') {
     const currentMain = hydrated.items.find((i) => i.slot === 'main')!.product;
     // Do not swap into an outfit already shown in a sibling look from the same chat.
-    const sessions = await repos.sessions.find({ userId: profile.userId });
-    const siblingIds = sessions.find((s) => s.lookIds.includes(lookId))?.lookIds ?? [];
+    const siblingIds = session?.lookIds ?? [];
     const siblings = siblingIds.length ? await repos.looks.find({ id: { $in: siblingIds } }) : [];
     const shownMains = siblings.map((l) => l.items.find((i) => i.slot === 'main')?.productId).filter((x): x is string => !!x);
-    const alt = composeLooks(catalog, profile, { occasion, excludeMainIds: [currentMain.id, ...shownMains], count: 1 })[0];
+    const exclude = { excludeMainIds: [currentMain.id, ...shownMains], count: 1 };
+    // Stay in the requested colours if any are left; otherwise rank them first among the rest.
+    const alt =
+      composeLooks(catalog, profile, { ...asked, ...exclude })[0] ??
+      composeLooks(catalog, profile, { ...asked, ...exclude, brands: [], colors: [], preferColors: asked.colors })[0];
     if (!alt) throw new AppError(422, 'No other look matches right now');
     hydrated.items = alt.items;
   } else {
-    const swapped = swapSlot(catalog, profile, hydrated.items, slot, occasion, profile.budgetMax);
+    // Looks can sit right at the budget, so an asked-for swap may use the same 25% stretch chat allows.
+    const budget = asked.budgetMax ?? profile.budgetMax;
+    const swapped =
+      swapSlot(catalog, profile, hydrated.items, slot, occasion, budget, asked) ??
+      swapSlot(catalog, profile, hydrated.items, slot, occasion, Math.round(budget * 1.25), asked);
     if (!swapped) throw new AppError(422, `No other ${slot} fits this look and your budget`);
     hydrated.items = swapped;
   }
