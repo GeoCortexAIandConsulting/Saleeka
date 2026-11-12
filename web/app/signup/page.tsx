@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import Header from '@/components/Header';
 import AuthShell from '@/components/AuthShell';
-import { api } from '@/lib/api';
+import { api, nextPath } from '@/lib/api';
 
 export default function Signup() {
   const router = useRouter();
@@ -19,7 +19,7 @@ export default function Signup() {
     setBusy(true);
     try {
       await api('/auth/signup', { body: { ...form, consent } });
-      router.replace('/quiz');
+      router.replace(nextPath('/quiz'));
     } catch (err: any) {
       setError(err.message);
       setBusy(false);

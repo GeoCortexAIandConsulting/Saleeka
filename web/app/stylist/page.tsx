@@ -80,7 +80,7 @@ export default function Stylist() {
     setSwapping(null);
   }
 
-  if (!me) return (<><Header /><main className="p-8 text-center text-ink/60">Loading…</main></>);
+  if (!me) return (<><Header /><main className="p-8 text-center text-ink/65">Loading…</main></>);
 
   return (
     <>
@@ -96,7 +96,7 @@ export default function Stylist() {
               ))}
             </div>
             {me.roundsDone < 2 && (
-              <p className="mt-6 text-sm text-ink/60">
+              <p className="mt-6 text-sm text-ink/65">
                 Your looks get sharper with every ranking round. <Link className="font-semibold text-plum" href="/rounds">Do a round</Link>
               </p>
             )}
@@ -108,7 +108,7 @@ export default function Stylist() {
             <div key={i} className={m.role === 'user' ? 'flex justify-end' : ''}>
               <div className={m.role === 'user' ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-plum px-4 py-3 text-white' : 'w-full'}>
                 <p className={m.role === 'assistant' ? 'text-ink' : ''}>{m.text}</p>
-                {m.notes?.map((n) => <p key={n} className="mt-1 text-xs italic text-ink/60">{n}</p>)}
+                {m.notes?.map((n) => <p key={n} className="mt-1 text-xs italic text-ink/65">{n}</p>)}
                 {m.suggestions && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {m.suggestions.map((s) => (
@@ -132,7 +132,7 @@ export default function Stylist() {
               </div>
             </div>
           ))}
-          {busy && <p className="text-sm text-ink/50">Styling…</p>}
+          {busy && <p className="text-sm text-ink/65">Styling…</p>}
           {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
           <div ref={bottom} />
         </div>

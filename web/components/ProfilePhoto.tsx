@@ -87,7 +87,7 @@ export default function ProfilePhoto({
           {photoVersion ? 'Change photo' : 'Add photo'}
         </button>
         {photoVersion && (
-          <button type="button" className="text-ink/60 hover:underline" onClick={remove} disabled={busy}>Remove</button>
+          <button type="button" className="text-ink/65 hover:underline" onClick={remove} disabled={busy}>Remove</button>
         )}
       </div>
       {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}

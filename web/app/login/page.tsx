@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import Header from '@/components/Header';
 import AuthShell from '@/components/AuthShell';
-import { api } from '@/lib/api';
+import { api, nextPath } from '@/lib/api';
 import type { Me } from '@/lib/types';
 
 export default function Login() {
@@ -20,7 +20,7 @@ export default function Login() {
     try {
       await api('/auth/login', { body: form });
       const me = await api<Me>('/me');
-      router.replace(me.hasProfile ? '/stylist' : '/quiz');
+      router.replace(nextPath(me.hasProfile ? '/studio' : '/quiz'));
     } catch (err: any) {
       setError(err.message);
       setBusy(false);

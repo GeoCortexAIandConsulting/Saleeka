@@ -7,7 +7,7 @@ import ProfilePhoto from '@/components/ProfilePhoto';
 import AvatarBuilder from '@/components/AvatarBuilder';
 import { forgetAvatar } from '@/lib/useAvatar';
 import { QuestionInput, answersBody, describeAnswer, isAnswered, visibleQuestions, type Answers } from '@/components/QuestionInput';
-import { api } from '@/lib/api';
+import { api, forgetDevice, signOut } from '@/lib/api';
 import { useRequireUser } from '@/lib/useMe';
 import type { Question } from '@/lib/types';
 
@@ -112,16 +112,30 @@ export default function Account() {
   async function wipe() {
     setBusy(true);
     await api('/me', { method: 'DELETE' });
+    forgetDevice();
     router.replace('/');
   }
 
-  if (!me) return (<><Header /><main className="p-8 text-center text-ink/60">Loading…</main></>);
+  if (!me) return (<><Header /><main className="p-8 text-center text-ink/65">Loading…</main></>);
 
   return (
     <>
       <Header />
       <main className="page py-6 lg:py-10">
-        <h1 className="text-3xl font-bold lg:text-4xl">Account</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-3xl font-bold lg:text-4xl">Account</h1>
+          {/* The header has no room for Sign out on phones, so it lives here too. */}
+          <button
+            type="button"
+            className="btn btn-ghost !min-h-[40px] !py-2 text-sm"
+            onClick={async () => {
+              await signOut();
+              router.replace('/');
+            }}
+          >
+            Sign out
+          </button>
+        </div>
 
         {/* Large screens: profile card on the left, answers on the right. Phones: stacked. */}
         <div className="mt-6 grid gap-6 lg:grid-cols-[320px_1fr] lg:items-start xl:grid-cols-[360px_1fr] xl:gap-10">
@@ -139,14 +153,14 @@ export default function Account() {
                     {name} <span className="text-sm font-normal text-plum opacity-0 transition group-hover:opacity-100">Edit</span>
                   </button>
                 )}
-                <div className="text-sm text-ink/60">{me.user.email}</div>
+                <div className="text-sm text-ink/65">{me.user.email}</div>
               </div>
               {summary && <p className="mt-4 border-t border-line pt-4 text-sm text-ink/80">{summary}</p>}
               <div className="mt-4 flex flex-wrap justify-center gap-2">
                 <Link href="/rounds" className="btn btn-ghost">More ranking rounds</Link>
                 {!me.hasProfile && <Link href="/quiz" className="btn btn-primary">Take the quiz</Link>}
               </div>
-              <p className="mt-4 text-center text-xs text-ink/50">
+              <p className="mt-4 text-center text-xs text-ink/65">
                 Your photo and avatar are only shown to you. Complexion selfies are never uploaded.
               </p>
             </div>
@@ -182,7 +196,7 @@ export default function Account() {
                 />
               </div>
             )}
-            {me.hasProfile && !saved && <p className="text-ink/60">Loading your answers…</p>}
+            {me.hasProfile && !saved && <p className="text-ink/65">Loading your answers…</p>}
             {saved &&
               SECTIONS.map((sec) => {
                 const qs = sec.ids.map((id) => byId.get(id)).filter((q): q is Question => !!q && shown.has(q.id));
@@ -206,7 +220,7 @@ export default function Account() {
                           ) : (
                             <div className="flex items-start gap-4">
                               <div className="min-w-0 flex-1">
-                                <div className="text-sm text-ink/60">{q.title.replace(/ \((optional|pick up to \d+)\)$/, '')}</div>
+                                <div className="text-sm text-ink/65">{q.title.replace(/ \((optional|pick up to \d+)\)$/, '')}</div>
                                 <div className="mt-0.5 font-medium">{describeAnswer(q, saved)}</div>
                                 {justSaved === q.id && <div className="mt-1 text-xs font-semibold text-emerald-700">Saved</div>}
                               </div>

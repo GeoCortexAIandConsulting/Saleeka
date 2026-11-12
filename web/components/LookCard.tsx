@@ -14,6 +14,8 @@ const SLOT_LABEL: Record<Slot, string> = {
   footwear: 'Shoes',
   bag: 'Bag',
   jewelry: 'Jewellery',
+  waistcoat: 'Waistcoat',
+  accessory: 'Accessory',
 };
 
 export interface LookCardProps {
@@ -112,9 +114,9 @@ export default function LookCard({ look, rank, onSelect, selected, onSave, onSwa
               />
             )}
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] uppercase tracking-wide text-ink/50">{SLOT_LABEL[slot]}</div>
+              <div className="text-[11px] uppercase tracking-wide text-ink/65">{SLOT_LABEL[slot]}</div>
               <div className="truncate text-sm font-medium capitalize">{product.title}</div>
-              <div className="truncate text-xs text-ink/60">
+              <div className="truncate text-xs text-ink/65">
                 {product.brandName}
                 {slot === 'main' && !product.stitched ? ' · unstitched fabric' : ''}
                 {slot === 'main' && product.includesDupatta ? ' · dupatta included' : ''}
@@ -158,7 +160,7 @@ export default function LookCard({ look, rank, onSelect, selected, onSave, onSwa
           {look.saved ? 'Saved ✓ (tap to remove)' : 'Save this look'}
         </button>
       )}
-      <p className="mt-2 text-[11px] text-ink/40">
+      <p className="mt-2 text-[11px] text-ink/65">
         {look.items.some((i) => i.product.demo)
           ? 'Demo products for testing. Prices and links are placeholders.'
           : `Photos, prices and stock from each brand's official website${checked ? `, checked ${checked}` : ''}. Saleeqa prototype, not affiliated with the brands.`}

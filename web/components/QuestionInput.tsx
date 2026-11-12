@@ -71,7 +71,7 @@ export function HeightInput({ value, onChange }: { value: number | undefined; on
               onChange(e.target.value === '' ? undefined : Number(e.target.value));
             }}
           />
-          <span className="text-ink/60">cm</span>
+          <span className="text-ink/65">cm</span>
         </div>
       ) : (
         <div className="flex items-center gap-2">
@@ -85,7 +85,7 @@ export function HeightInput({ value, onChange }: { value: number | undefined; on
             value={ftText}
             onChange={(e) => updateFtIn(e.target.value, inText)}
           />
-          <span className="text-ink/60">ft</span>
+          <span className="text-ink/65">ft</span>
           <input
             className="input max-w-[90px]"
             type="number"
@@ -96,11 +96,11 @@ export function HeightInput({ value, onChange }: { value: number | undefined; on
             value={inText}
             onChange={(e) => updateFtIn(ftText, e.target.value)}
           />
-          <span className="text-ink/60">in</span>
+          <span className="text-ink/65">in</span>
         </div>
       )}
 
-      {unit === 'ft' && value !== undefined && <p className="text-xs text-ink/50">≈ {value} cm</p>}
+      {unit === 'ft' && value !== undefined && <p className="text-xs text-ink/65">≈ {value} cm</p>}
     </div>
   );
 }
@@ -229,7 +229,7 @@ export function QuestionInput({ q, answers, setAnswers }: { q: Question; answers
                   <BodyFigure gender={gender} shape={notSure ? undefined : preview!.value} heightCm={height} weightKg={weight} ghost={notSure} className="h-[220px] landscape:h-[200px] sm:h-[280px] xl:h-[360px]" />
                   <figcaption className="px-2 pb-2 text-center" aria-live="polite">
                     <div className="text-sm font-semibold">{notSure ? (preview ? 'We’ll work it out' : 'Hover a shape to preview') : preview!.label}</div>
-                    {!notSure && preview!.hint && <div className="text-xs text-ink/60">{preview!.hint}</div>}
+                    {!notSure && preview!.hint && <div className="text-xs text-ink/65">{preview!.hint}</div>}
                   </figcaption>
                 </figure>
                 <div className="grid gap-2 landscape:order-1 sm:order-1 xl:grid-cols-2" onMouseLeave={() => setHovered(undefined)}>
@@ -244,7 +244,7 @@ export function QuestionInput({ q, answers, setAnswers }: { q: Question; answers
                       className={`w-full rounded-2xl border p-4 text-left transition ${value === o.value ? 'border-plum bg-plum-soft' : 'border-line bg-white hover:border-plum/50'}`}
                     >
                       <div className="font-semibold">{o.label}</div>
-                      {o.hint && <div className="text-sm text-ink/60">{o.hint}</div>}
+                      {o.hint && <div className="text-sm text-ink/65">{o.hint}</div>}
                     </button>
                   ))}
                 </div>
@@ -283,7 +283,7 @@ export function QuestionInput({ q, answers, setAnswers }: { q: Question; answers
                 >
                   <EmbellishPreview level={o.value as Embellishment} gender={gender} look={look} />
                   <div className="mt-2 px-1 font-semibold">{o.label}</div>
-                  {o.hint && <div className="px-1 text-xs text-ink/60 sm:text-sm">{o.hint}</div>}
+                  {o.hint && <div className="px-1 text-xs text-ink/65 sm:text-sm">{o.hint}</div>}
                 </button>
               ))}
             </div>
@@ -300,7 +300,7 @@ export function QuestionInput({ q, answers, setAnswers }: { q: Question; answers
                   className={`w-full rounded-2xl border p-4 text-left transition ${value === o.value ? 'border-plum bg-plum-soft' : 'border-line bg-white hover:border-plum/50'}`}
                 >
                   <div className="font-semibold">{o.label}</div>
-                  {o.hint && <div className="text-sm text-ink/60">{o.hint}</div>}
+                  {o.hint && <div className="text-sm text-ink/65">{o.hint}</div>}
                 </button>
               ))}
             </div>
@@ -363,7 +363,7 @@ export function QuestionInput({ q, answers, setAnswers }: { q: Question; answers
           )}
 
           {q.type === 'multi' && q.id === 'silhouettes' && (
-            <p className="mt-3 text-xs text-ink/50">
+            <p className="mt-3 text-xs text-ink/65">
               Example photos for illustration only. <a href="/credits" target="_blank" className="underline">Photo credits</a>
             </p>
           )}
@@ -382,7 +382,7 @@ export function QuestionInput({ q, answers, setAnswers }: { q: Question; answers
                   >
                     <div className="text-2xl" aria-hidden="true">{icon[o.value]}</div>
                     <div className="mt-1 font-semibold">{o.label}</div>
-                    {o.hint && <div className="text-xs text-ink/60">{o.hint}</div>}
+                    {o.hint && <div className="text-xs text-ink/65">{o.hint}</div>}
                   </button>
                 );
               })}
@@ -410,7 +410,7 @@ export function QuestionInput({ q, answers, setAnswers }: { q: Question; answers
               <div className="space-y-4">
                 <div className="flex flex-wrap gap-2">{allOpt.map(chip)}</div>
                 <div>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink/60">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink/65">
                     {anySeason ? 'All fabrics' : `Best for ${picked.join(', ')}`}
                   </div>
                   <div className="flex flex-wrap gap-2">{matched.map(chip)}</div>
@@ -457,7 +457,7 @@ export function QuestionInput({ q, answers, setAnswers }: { q: Question; answers
                 onChange={(e) => set(e.target.value === '' ? undefined : e.target.value)}
                 aria-label={q.unit ? `${q.title.replace(/ \(optional\)$/, '')} in ${q.unit}` : undefined}
               />
-              {q.unit && <span className="text-ink/60">{q.unit}</span>}
+              {q.unit && <span className="text-ink/65">{q.unit}</span>}
             </div>
           )}
 

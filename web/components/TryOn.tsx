@@ -53,9 +53,9 @@ export default function TryOn({ look, onClose }: { look: Look; onClose: () => vo
                 className="h-[58vh] cursor-grab active:cursor-grabbing sm:h-[70vh]"
               />
             ) : (
-              <div className="flex h-[58vh] items-center justify-center text-sm text-ink/60 sm:h-[70vh]">{error || 'Dressing your avatar…'}</div>
+              <div className="flex h-[58vh] items-center justify-center text-sm text-ink/65 sm:h-[70vh]">{error || 'Dressing your avatar…'}</div>
             )}
-            <span className="absolute bottom-2 right-3 text-[11px] text-ink/45">Drag to turn</span>
+            <span className="absolute bottom-2 right-3 text-[11px] text-ink/65">Drag to turn</span>
           </div>
 
           <aside className="space-y-4 p-5">
@@ -69,7 +69,7 @@ export default function TryOn({ look, onClose }: { look: Look; onClose: () => vo
                     <div className="h-9 w-9 shrink-0 rounded-lg border border-line" style={{ background: product.hex }} aria-hidden="true" />
                   )}
                   <div className="min-w-0">
-                    <div className="text-[11px] uppercase tracking-wide text-ink/50">{SLOT_LABEL[slot] ?? slot}</div>
+                    <div className="text-[11px] uppercase tracking-wide text-ink/65">{SLOT_LABEL[slot] ?? slot}</div>
                     <div className="truncate text-sm font-medium capitalize">{product.title}</div>
                   </div>
                 </li>
@@ -83,7 +83,7 @@ export default function TryOn({ look, onClose }: { look: Look; onClose: () => vo
                 Want it to look like you? <Link href="/account" className="font-semibold text-plum underline">Add your face and measurements</Link> on your account page.
               </p>
             )}
-            <p className="text-[11px] text-ink/45">
+            <p className="text-[11px] text-ink/65">
               A guide to colour, length and silhouette, not an exact fit. Fabric prints and embroidery are illustrated.
             </p>
           </aside>

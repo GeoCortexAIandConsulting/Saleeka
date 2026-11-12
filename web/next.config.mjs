@@ -11,6 +11,15 @@ export default {
   experimental: { proxyTimeout: 180000 },
   // The browser talks only to this site; Next forwards /api to the Express server.
   // That keeps the login cookie first-party (no CORS or third-party cookie problems).
+  // Old addresses of the Studio and the Runway (renamed from Play and My taste).
+  async redirects() {
+    return [
+      { source: '/play', destination: '/studio', permanent: false },
+      { source: '/taste', destination: '/runway', permanent: false },
+      // The AI stylist is hidden until there is enough player data to build it on.
+      { source: '/stylist', destination: '/studio', permanent: false },
+    ];
+  },
   async rewrites() {
     return [{ source: '/api/:path*', destination: `${API_URL}/api/:path*` }];
   },

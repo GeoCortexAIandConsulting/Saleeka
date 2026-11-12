@@ -289,7 +289,7 @@ export default function BodyFigure({
 
   return (
     <div ref={mountRef} className={`relative ${className}`} aria-hidden="true">
-      {failed && <div className="flex h-full items-center justify-center text-xs text-ink/40">Preview unavailable</div>}
+      {failed && <div className="flex h-full items-center justify-center text-xs text-ink/65">Preview unavailable</div>}
     </div>
   );
 }

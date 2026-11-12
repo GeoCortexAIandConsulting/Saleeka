@@ -21,3 +21,14 @@ export function useRequireUser(opts: { needProfile?: boolean } = {}) {
   }, []);
   return me;
 }
+
+/** For pages anyone may open (a shared look): the user if signed in, null if not; `ready` once known. */
+export function useMaybeUser() {
+  const [state, setState] = useState<{ me: Me | null; ready: boolean }>({ me: null, ready: false });
+  useEffect(() => {
+    api<Me>('/me')
+      .then((m) => setState({ me: m, ready: true }))
+      .catch(() => setState({ me: null, ready: true }));
+  }, []);
+  return state;
+}

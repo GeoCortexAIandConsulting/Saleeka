@@ -112,11 +112,11 @@ export default function AvatarBuilder({
           className="h-[380px] cursor-grab active:cursor-grabbing lg:h-[440px]"
         />
         {draft && <span className="absolute left-3 top-3 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-plum shadow-sm">Preview: not saved yet</span>}
-        <span className="absolute bottom-2 right-3 text-[11px] text-ink/45">Drag to turn</span>
+        <span className="absolute bottom-2 right-3 text-[11px] text-ink/65">Drag to turn</span>
       </div>
 
       {missing.length > 0 && (
-        <p className="mt-3 text-xs text-ink/60">
+        <p className="mt-3 text-xs text-ink/65">
           Add your {missing.join(', ').replace(/, ([^,]*)$/, ' and $1')} in “About you” for a closer fit.
         </p>
       )}
@@ -134,7 +134,7 @@ export default function AvatarBuilder({
             </button>
             <button className="btn btn-ghost" onClick={() => fileRef.current?.click()} disabled={!!busy}>Upload a photo</button>
             {saved && (
-              <button className="btn btn-ghost text-ink/60" onClick={remove} disabled={!!busy}>{busy === 'removing' ? 'Removing…' : 'Remove face'}</button>
+              <button className="btn btn-ghost text-ink/65" onClick={remove} disabled={!!busy}>{busy === 'removing' ? 'Removing…' : 'Remove face'}</button>
             )}
           </>
         )}
@@ -152,7 +152,7 @@ export default function AvatarBuilder({
       />
       {busy === 'reading' && <p className="mt-3 text-sm text-ink/70" aria-live="polite">Finding your face… (the first time loads a small face model)</p>}
       {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      <p className="mt-3 text-xs text-ink/50">
+      <p className="mt-3 text-xs text-ink/65">
         Use one clear, front-facing photo in daylight, without filters or glasses. Your face is found on this device; we keep only
         its shape and a small face image, shown only to you. Remove it any time.
       </p>

@@ -1,16 +1,17 @@
 import type { Metadata, Viewport } from 'next';
 import { Cormorant_Garamond, Inter, Noto_Nastaliq_Urdu } from 'next/font/google';
 import './globals.css';
+import Toaster from '@/components/Toaster';
 
-const display = Cormorant_Garamond({ subsets: ['latin'], weight: ['400', '500', '600', '700'], variable: '--font-display', display: 'swap' });
+const display = Cormorant_Garamond({ subsets: ['latin'], weight: ['400', '500', '600', '700'], style: ['normal', 'italic'], variable: '--font-display', display: 'swap' });
 const sans = Inter({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
 // Only the one Urdu word uses this large font, so it is not preloaded.
 const urdu = Noto_Nastaliq_Urdu({ subsets: ['arabic'], weight: ['500'], variable: '--font-urdu', display: 'swap', preload: false });
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-const TITLE = 'Saleeqa: your personal stylist for Pakistani fashion';
+const TITLE = 'Saleeqa: style the look, walk the Runway';
 const DESCRIPTION =
-  'Tell us your taste once. Saleeqa builds complete head-to-toe looks from your favourite brands, modest-friendly and in PKR.';
+  'A styling game for Pakistani fashion: build complete head-to-toe looks from real pieces by your favourite brands, then share them on the Runway.';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -33,7 +34,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${display.variable} ${sans.variable} ${urdu.variable}`}>
       {/* Browser extensions (e.g. Grammarly) add attributes to <body> before React loads; ignore just those. */}
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        {children}
+        <Toaster />
+      </body>
     </html>
   );
 }

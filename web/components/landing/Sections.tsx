@@ -1,119 +1,223 @@
 import Link from 'next/link';
 import Logo, { UrduName } from '@/components/Logo';
-import LiteToggle from './LiteToggle';
+import LookFigure from './LookFigure';
 import ModestySlider from './ModestySlider';
+import RunwayShowcase from './RunwayShowcase';
+import TryStudio from './TryStudio';
 
-const rupees = (n: number) => `Rs. ${n.toLocaleString('en-PK')}`;
+/* The landing page after the hero, in reading order. */
 
-/* ---------------------------------------- Stages ---------------------------------------- */
-
-function Stage({ scene, id, kicker, title, body, art, children }: {
-  scene: number;
-  id?: string;
-  kicker: string;
-  title: string;
-  body: string;
-  art: React.ReactNode;
-  children?: React.ReactNode;
-}) {
+function Eyebrow({ children, light = false }: { children: React.ReactNode; light?: boolean }) {
   return (
-    <section id={id} data-scene={scene} className="stage stage-glow">
-      <div className="page stage-inner">
-        <div className="grid w-full items-center gap-10 min-[900px]:grid-cols-2">
-          <div className="stage-copy reveal max-w-lg">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-gold-light">{kicker}</p>
-            <h2 className="mt-2 text-4xl font-semibold leading-[1.05] sm:text-6xl">{title}</h2>
-            <p className="mt-4 text-base leading-relaxed text-white/85 sm:text-lg">{body}</p>
-            {children}
-          </div>
-          <div className="stage-art reveal" aria-hidden="true">{art}</div>
+    <p className={`flex items-center gap-2.5 text-xs font-semibold uppercase tracking-[0.28em] ${light ? 'text-gold-light' : 'text-gold-deep'}`}>
+      <span className="text-gold" aria-hidden="true">✦</span>
+      {children}
+    </p>
+  );
+}
+
+/* -------------------------------------- Brand ticker -------------------------------------- */
+
+// The brands whose pieces are in the Studio, women's and men's. Logos come from each brand's own site
+// (public/brands) and are shown in one ivory tone so they sit together on the plum band. Bareeze's and
+// Outfitters' logos could not be read from their sites, so their names are set as wordmarks for now.
+const BRANDS: { name: string; logo?: string; h: string }[] = [
+  { name: 'Maria B', logo: '/brands/maria-b.svg', h: 'h-7 sm:h-8' },
+  { name: 'J. (Junaid Jamshed)', logo: '/brands/junaid-jamshed.svg', h: 'h-14 sm:h-16' },
+  { name: 'Sapphire', logo: '/brands/sapphire.svg', h: 'h-4 sm:h-5' },
+  { name: 'Diners', logo: '/brands/diners.svg', h: 'h-7 sm:h-8' },
+  { name: 'Gul Ahmed', logo: '/brands/gul-ahmed.svg', h: 'h-6 sm:h-7' },
+  { name: 'Edenrobe', logo: '/brands/edenrobe.png', h: 'h-6 sm:h-7' },
+  { name: 'Limelight', logo: '/brands/limelight.svg', h: 'h-7 sm:h-8' },
+  { name: 'Amir Adnan', logo: '/brands/amir-adnan.png', h: 'h-10 sm:h-12' },
+  { name: 'Nishat Linen', logo: '/brands/nishat-linen.png', h: 'h-6 sm:h-8' },
+  { name: 'Bonanza Satrangi', logo: '/brands/bonanza-satrangi.png', h: 'h-7 sm:h-8' },
+  { name: 'Ethnic', logo: '/brands/ethnic.svg', h: 'h-6 sm:h-8' },
+  { name: 'Charcoal', logo: '/brands/charcoal.png', h: 'h-5 sm:h-6' },
+  { name: 'Beechtree', logo: '/brands/beechtree.svg', h: 'h-6 sm:h-7' },
+  { name: 'Alkaram Studio', logo: '/brands/alkaram-studio.png', h: 'h-9 sm:h-11' },
+  { name: 'Outfitters', h: '' },
+  { name: 'Bareeze', h: '' },
+];
+
+export function BrandTicker() {
+  const row = (hidden: boolean) => (
+    <ul className="flex shrink-0 items-center" aria-hidden={hidden || undefined}>
+      {BRANDS.map((b) => (
+        <li key={b.name} className="flex items-center px-8 sm:px-12">
+          {b.logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={b.logo} alt={hidden ? '' : b.name} className={`brand-logo w-auto ${b.h}`} loading="lazy" />
+          ) : (
+            <span className="whitespace-nowrap font-display text-2xl font-semibold uppercase tracking-[0.3em] text-ivory/85 sm:text-3xl">{b.name}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+  return (
+    <section aria-label="Brands in the Studio" className="relative overflow-hidden border-y border-gold/40 bg-plum-dark pb-6 pt-5">
+      <p className="mb-4 text-center text-[11px] font-semibold uppercase tracking-[0.28em] text-gold-light">
+        Style real pieces from Pakistan’s favourite brands
+      </p>
+      <div className="marquee flex w-max">
+        {row(false)}
+        {row(true)}
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------- Try it now --------------------------------------- */
+
+export function TryIt() {
+  return (
+    <section id="try" className="relative scroll-mt-20 bg-ivory py-20 sm:py-28">
+      <div className="page">
+        <div className="reveal mx-auto max-w-2xl text-center">
+          <Eyebrow>Try it now, no account needed</Eyebrow>
+          <h2 className="mt-4 text-5xl font-semibold leading-[1] sm:text-6xl">
+            Go on, <span className="italic text-plum">style one.</span>
+          </h2>
+          <p className="mt-5 text-lg text-ink/75">
+            Real challenges, real pieces from Pakistan’s favourite brands. Style a Mehndi look for her or an Eid look for
+            him, complete it head to toe, and watch it come together.
+          </p>
+        </div>
+        <div className="reveal mt-12">
+          <TryStudio />
         </div>
       </div>
     </section>
   );
 }
 
-const SWATCHES = ['#0F7B5A', '#F3C9D0', '#F6EFE0', '#6F1D2B', '#A3B18A', '#C9A24A'];
+/* -------------------------------------- How it works -------------------------------------- */
 
-function SwatchArt() {
-  return (
-    <div className="grid grid-cols-3 gap-3">
-      {SWATCHES.map((c, i) => (
-        <div key={c} className={`fabric h-24 sm:h-32 ${i % 2 ? 'translate-y-4' : ''}`} style={{ background: `linear-gradient(145deg, ${c}, ${c}cc)` }} />
-      ))}
-    </div>
-  );
-}
-
-function RankArt() {
-  const looks = [
-    { n: 2, c: '#A3B18A', t: 'Sage lawn' },
-    { n: 1, c: '#6F1D2B', t: 'Maroon formal' },
-    { n: 3, c: '#F3C9D0', t: 'Blush chiffon' },
+function TicketsArt() {
+  const tickets = [
+    { t: 'Mehndi', c: ['#D4A017', '#0F7B5A'], r: '-rotate-6' },
+    { t: 'Eid', c: ['#F6EFE0', '#E2C07A'], r: 'rotate-3' },
+    { t: 'Office', c: ['#1F3A5F', '#F3EBDD'], r: '-rotate-1' },
   ];
   return (
-    <div className="grid grid-cols-3 items-end gap-3">
-      {looks.map((l) => (
-        <div key={l.n} className={`rounded-3xl border p-2 ${l.n === 1 ? 'border-gold-light bg-white/10' : 'border-white/15'}`}>
-          <div className="fabric h-36 sm:h-48" style={{ background: `linear-gradient(160deg, ${l.c}, ${l.c}bb)` }} />
-          <p className="mt-2 text-center text-xs text-white/85">{l.n}. {l.t}</p>
+    <div className="relative h-full w-full">
+      {tickets.map((k, i) => (
+        <div
+          key={k.t}
+          className={`absolute left-1/2 flex w-40 -translate-x-1/2 items-center justify-between rounded-xl border border-line bg-white px-3 py-2.5 shadow-md ${k.r}`}
+          style={{ top: `${18 + i * 22}%` }}
+        >
+          <span className="font-display text-lg font-semibold">{k.t}</span>
+          <span className="flex gap-1">{k.c.map((c) => <span key={c} className="h-3.5 w-3.5 rounded-full border border-ink/10" style={{ background: c }} />)}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function BuildArt() {
-  const pieces = ['Emerald kameez', 'Ivory dupatta', 'Gold khussa', 'Potli clutch', 'Jhumkay'];
+function BoardArt() {
   return (
-    <ul className="rounded-3xl border border-white/15 bg-white/5 p-5">
-      {pieces.map((p, i) => (
-        <li key={p} className="flex items-center gap-3 border-b border-white/10 py-3 last:border-0">
-          <span className="fabric h-9 w-9 shrink-0" style={{ background: SWATCHES[i] }} />
-          <span className="text-sm text-white/90">{p}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-export function HowItWorks() {
-  return (
-    <div id="how">
-      <Stage scene={0} kicker="Step one" title="Tell us your taste" art={<SwatchArt />}
-        body="A 3-minute quiz: coverage, colours, cuts, budget and the occasions you shop for." />
-      <Stage scene={1} kicker="Step two" title="Rank your favorites" art={<RankArt />}
-        body="Pick your favourites from sets of three and tell us why. Each round sharpens your profile." />
-      <Stage scene={2} kicker="Step three" title="Chat with your stylist" art={<BuildArt />}
-        body="“Mehndi outfit, green, under 25k.” Get three complete looks from head to toe, with dupatta, shoes, a bag and jewellery." />
+    <div className="grid h-[78%] w-[62%] grid-cols-[1.4fr_1fr] gap-1.5 rounded-2xl bg-[#FBF3EA] p-1.5 shadow-md">
+      <div className="rounded-xl" style={{ background: 'linear-gradient(160deg,#0F7B5A,#0B5E45)' }} />
+      <div className="flex flex-col gap-1.5">
+        {['#F3EBDD', '#E2C07A', '#C9A24A', '#D8B25A'].map((c) => <div key={c} className="flex-1 rounded-lg" style={{ background: c }} />)}
+      </div>
     </div>
   );
 }
 
-export function Finale() {
+function ReactionsArt() {
   return (
-    <Stage scene={3} kicker="Saleeqa" title="Your taste, styled head to toe." art={null}
-      body="Three minutes today, and a stylist who remembers what you love.">
-      <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-        <Link href="/signup" className="btn btn-light">Find my style</Link>
-        <Link href="/login" className="btn btn-outline-light">I have an account</Link>
+    <div className="relative h-full w-full">
+      <div className="absolute left-1/2 top-[10%] h-[78%] w-[44%] -translate-x-1/2 overflow-hidden rounded-t-full bg-gradient-to-b from-[#F2D9D6] to-white shadow-md">
+        <LookFigure
+          id="step-3"
+          label="A baraat look in red and gold"
+          look={{ kameez: '#9E1F2E', bottom: '#6F1D2B', dupatta: '#C9A24A', shoes: '#C9A24A', jewel: { kind: 'choker', color: '#D4AF37' } }}
+          className="mx-auto mt-3 block h-[92%] w-auto"
+        />
       </div>
-    </Stage>
+      <span className="float absolute left-[8%] top-[30%] rounded-full bg-white px-3 py-1.5 text-sm font-semibold shadow-md">👍 401</span>
+      <span className="float float-2 absolute right-[6%] top-[52%] rounded-full bg-white px-3 py-1.5 text-sm font-semibold shadow-md">💬 22</span>
+      <span className="float float-3 absolute bottom-[6%] right-[8%] whitespace-nowrap rounded-2xl rounded-bl-sm bg-plum px-3 py-1.5 text-xs text-white shadow-md">Bridal party goals!</span>
+    </div>
   );
 }
 
-/* --------------------------------------- Modesty --------------------------------------- */
+export function HowItWorks() {
+  const steps = [
+    { n: '01', t: 'Pick a challenge', b: 'Mehndi in mustard, Eid in white, a sharp office look. Each one sets the occasion, the colours and how covered the look should be.', art: <TicketsArt /> },
+    { n: '02', t: 'Build it head to toe', b: 'Outfit and bottom, then the finishing touches: a dupatta, bag and jewellery for her, a waistcoat and a watch for him. Real pieces from Pakistan’s favourite brands, with the total in PKR.', art: <BoardArt /> },
+    { n: '03', t: 'Walk the Runway', b: 'Publish your look for everyone to see. Like what you love, comment and reply, and tap any brand to shop the real piece.', art: <ReactionsArt /> },
+  ];
+  return (
+    <section id="how" className="relative bg-sand py-20 sm:py-28">
+      <div className="grain" aria-hidden="true" />
+      <div className="page relative">
+        <div className="reveal max-w-2xl">
+          <Eyebrow>How it works</Eyebrow>
+          <h2 className="mt-4 text-5xl font-semibold leading-[1] sm:text-6xl">Three steps to the Runway</h2>
+        </div>
+        <ol className="mt-14 grid gap-8 md:grid-cols-3 md:gap-6">
+          {steps.map((s) => (
+            <li key={s.n} className="reveal">
+              <div className="arch arch-frame relative flex aspect-[4/3.6] items-center justify-center overflow-hidden bg-ivory">{s.art}</div>
+              <div className="mt-6 flex items-baseline gap-4">
+                <span className="numeral font-display text-6xl font-semibold leading-none" aria-hidden="true">{s.n}</span>
+                <h3 className="text-3xl font-semibold">{s.t}</h3>
+              </div>
+              <p className="mt-3 leading-relaxed text-ink/75">{s.b}</p>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------- The Runway --------------------------------------- */
+
+export function OnTheRunway() {
+  return (
+    <section className="relative overflow-hidden bg-night py-20 text-white sm:py-28">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_80%_10%,rgb(107_45_92_/_0.55),transparent_70%),radial-gradient(40%_40%_at_10%_90%,rgb(184_137_59_/_0.18),transparent_70%)]" aria-hidden="true" />
+      <div className="page relative">
+        <div className="reveal grid items-end gap-6 lg:grid-cols-[1fr_auto]">
+          <div className="max-w-2xl">
+            <Eyebrow light>On the Runway</Eyebrow>
+            <h2 className="mt-4 text-5xl font-semibold leading-[1] sm:text-6xl">
+              Every look gets its <span className="italic text-gold-light">moment.</span>
+            </h2>
+            <p className="mt-5 text-lg text-white/75">
+              Women’s and men’s looks from players across Pakistan, styled from real pieces. Like the ones you love, tell
+              them why, and find your next favourite outfit in someone else’s look.
+            </p>
+          </div>
+          <Link href="/signup" className="btn btn-light self-start lg:self-end">Join the Runway</Link>
+        </div>
+        <div className="mt-14">
+          <RunwayShowcase />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------------------------------- Modesty ---------------------------------------- */
 
 export function Modesty() {
   return (
-    <section className="relative z-10 bg-ivory py-20 sm:py-28">
-      <div className="page grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+    <section className="relative bg-ivory py-20 sm:py-28">
+      <div className="page grid items-center gap-12 lg:grid-cols-2 lg:gap-20">
         <div className="reveal">
-          <p className="eyebrow">Modest-friendly</p>
-          <h2 className="mt-2 text-4xl font-semibold leading-[1.05] sm:text-6xl">Modesty is a setting, not an afterthought</h2>
-          <p className="mt-5 max-w-lg leading-relaxed text-ink/80">
-            Choose your coverage once, from relaxed to fully covered. Looks below your level never appear, and if you wear
-            hijab, every look comes with a matched scarf. Try the slider to see how a look changes.
+          <Eyebrow>Modest-friendly</Eyebrow>
+          <h2 className="mt-4 text-5xl font-semibold leading-[1] sm:text-6xl">
+            Modesty is part of the <span className="italic text-plum">brief.</span>
+          </h2>
+          <p className="mt-6 max-w-lg text-lg leading-relaxed text-ink/75">
+            Every women’s challenge sets a coverage level, from relaxed to fully covered. Only pieces that meet it can be
+            chosen, and modest challenges ask for a dupatta or scarf. Slide to see how a look changes.
           </p>
         </div>
         <div className="reveal"><ModestySlider /></div>
@@ -122,108 +226,31 @@ export function Modesty() {
   );
 }
 
-/* ------------------------------------- Sample looks ------------------------------------- */
-
-interface SampleItem { slot: string; title: string; brand: string; price: number; hex: string }
-interface SampleLook { label: string; occasion: string; items: SampleItem[] }
-
-// Fictional brands and products, in the same shape as the app's looks.
-const SAMPLE_LOOKS: SampleLook[] = [
-  { label: 'Best match', occasion: 'Eid', items: [
-    { slot: 'Outfit', title: 'Emerald silk 3-piece', brand: 'Demo Studio', price: 15900, hex: '#0F7B5A' },
-    { slot: 'Shoes', title: 'Gold khussa', brand: 'Demo Soles', price: 4200, hex: '#C9A24A' },
-    { slot: 'Bag', title: 'Ivory potli', brand: 'Demo Carry', price: 3100, hex: '#F6EFE0' },
-    { slot: 'Jewellery', title: 'Gold jhumkay', brand: 'Demo Jewels', price: 2600, hex: '#C9A24A' },
-  ] },
-  { label: 'Fresh pick', occasion: 'Mehndi', items: [
-    { slot: 'Outfit', title: 'Mustard angrakha', brand: 'Demo Loom', price: 9800, hex: '#D4A017' },
-    { slot: 'Dupatta', title: 'Rust embroidered dupatta', brand: 'Demo Lawn House', price: 3400, hex: '#B4532A' },
-    { slot: 'Shoes', title: 'Tan khussa', brand: 'Demo Soles', price: 3600, hex: '#D9C3A0' },
-    { slot: 'Jewellery', title: 'Gold maang tikka', brand: 'Demo Jewels', price: 4100, hex: '#C9A24A' },
-  ] },
-  { label: 'Smart value', occasion: 'Office', items: [
-    { slot: 'Outfit', title: 'Sage printed lawn 3-piece', brand: 'Demo Basics', price: 5400, hex: '#A3B18A' },
-    { slot: 'Shoes', title: 'Beige flats', brand: 'Demo Soles', price: 3200, hex: '#D9C3A0' },
-    { slot: 'Bag', title: 'Brown tote', brand: 'Demo Carry', price: 3800, hex: '#6D4C3A' },
-    { slot: 'Jewellery', title: 'Gold studs', brand: 'Demo Jewels', price: 1600, hex: '#C9A24A' },
-  ] },
-  { label: 'Hijab-friendly', occasion: 'Walima', items: [
-    { slot: 'Outfit', title: 'Plum velvet maxi', brand: 'Demo Heritage', price: 24500, hex: '#6B2D5C' },
-    { slot: 'Scarf', title: 'Ivory chiffon scarf', brand: 'Demo Loom', price: 2100, hex: '#F6EFE0' },
-    { slot: 'Shoes', title: 'Gold heels', brand: 'Demo Soles', price: 5800, hex: '#C9A24A' },
-    { slot: 'Bag', title: 'Pearl clutch', brand: 'Demo Carry', price: 4300, hex: '#F6EFE0' },
-  ] },
-  { label: 'Also great', occasion: 'Baraat', items: [
-    { slot: 'Outfit', title: 'Maroon organza 3-piece', brand: 'Demo Heritage', price: 31000, hex: '#6F1D2B' },
-    { slot: 'Shoes', title: 'Gold embellished khussa', brand: 'Demo Soles', price: 6400, hex: '#C9A24A' },
-    { slot: 'Bag', title: 'Gold potli', brand: 'Demo Carry', price: 4800, hex: '#C9A24A' },
-    { slot: 'Jewellery', title: 'Gold necklace set', brand: 'Demo Jewels', price: 7900, hex: '#C9A24A' },
-  ] },
-];
-
-function SampleCard({ look }: { look: SampleLook }) {
-  const total = look.items.reduce((n, i) => n + i.price, 0);
-  return (
-    <li className="card w-[82vw] max-w-[340px] shrink-0 snap-center p-5">
-      <div className="flex items-baseline justify-between">
-        <p className="eyebrow">{look.label}</p>
-        <p className="text-xs text-ink/70">{look.occasion}</p>
-      </div>
-      <p className="mt-1 font-display text-3xl font-semibold">{rupees(total)}</p>
-      <div className="mt-3 flex h-3 overflow-hidden rounded-full border border-line" aria-hidden="true">
-        {look.items.map((i, n) => <div key={i.slot} style={{ background: i.hex, flex: n === 0 ? 3 : 1 }} />)}
-      </div>
-      <ul className="mt-3 divide-y divide-line">
-        {look.items.map((i) => (
-          <li key={i.slot} className="flex items-center justify-between gap-3 py-2.5">
-            <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-wide text-ink/70">{i.slot}</p>
-              <p className="truncate text-sm font-medium">{i.title}</p>
-              <p className="text-xs text-ink/70">{i.brand}</p>
-            </div>
-            <p className="shrink-0 text-sm font-semibold">{rupees(i.price)}</p>
-          </li>
-        ))}
-      </ul>
-    </li>
-  );
-}
-
-export function SampleLooks() {
-  return (
-    <section className="relative z-10 bg-sand py-20 sm:py-28">
-      <div className="page reveal">
-        <p className="eyebrow">Sample looks</p>
-        <h2 className="mt-2 text-4xl font-semibold leading-[1.05] sm:text-6xl">Complete looks, head to toe</h2>
-        <p className="mt-4 max-w-lg text-ink/80">Every look is a full outfit priced in PKR. These are fictional samples, so swipe through.</p>
-      </div>
-      {/* tabIndex lets keyboard users scroll it with the arrow keys. */}
-      <ul
-        tabIndex={0}
-        aria-label="Sample looks, scrolls sideways"
-        className="no-scrollbar mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth px-4 pb-4 motion-reduce:scroll-auto sm:px-6 lg:px-[max(2rem,calc((100vw-80rem)/2+2rem))]"
-      >
-        {SAMPLE_LOOKS.map((l) => <SampleCard key={l.label} look={l} />)}
-      </ul>
-    </section>
-  );
-}
-
 /* ---------------------------------------- Brands ---------------------------------------- */
 
 export function ForBrands() {
-  const points = ['New shoppers matched to your style', 'Attributed clicks to your own site', 'A monthly report', 'A free 90-day pilot'];
+  const points = [
+    { t: 'Styled by shoppers', b: 'Your pieces worn in complete looks, put together by the people who buy them.' },
+    { t: 'Clicks to your shop', b: 'Every brand name links to the product on your own site, and every click is counted.' },
+    { t: 'A monthly report', b: 'Which pieces get styled, liked and clicked, so you know what people want next.' },
+    { t: 'A free 90-day pilot', b: 'Join while we’re early and help shape what we build.' },
+  ];
   return (
-    <section className="relative z-10 bg-plum-dark py-20 text-white sm:py-28">
-      <div className="page grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+    <section className="relative overflow-hidden bg-plum-dark py-20 text-white sm:py-28">
+      <div className="pointer-events-none absolute -left-20 -top-24 h-96 w-96 rounded-full border border-gold/20" aria-hidden="true" />
+      <div className="pointer-events-none absolute -left-10 -top-14 h-96 w-96 rounded-full border border-gold/10" aria-hidden="true" />
+      <div className="page relative grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20">
         <div className="reveal">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-gold-light">For brands</p>
-          <h2 className="mt-2 text-4xl font-semibold leading-[1.05] sm:text-6xl">Meet shoppers who already love your style</h2>
-          <a href="mailto:partners@saleeqa.example" className="btn btn-light mt-8">Partner with us</a>
+          <Eyebrow light>For brands</Eyebrow>
+          <h2 className="mt-4 text-5xl font-semibold leading-[1] sm:text-6xl">Your pieces, styled by the people who shop them.</h2>
+          <a href="mailto:partners@saleeqa.example" className="btn btn-light mt-9">Partner with us</a>
         </div>
-        <ul className="reveal space-y-4">
+        <ul className="reveal grid gap-px overflow-hidden rounded-3xl border border-white/15 bg-white/15 sm:grid-cols-2">
           {points.map((p) => (
-            <li key={p} className="border-b border-white/20 pb-4 font-display text-2xl">{p}</li>
+            <li key={p.t} className="bg-plum-dark p-6">
+              <h3 className="text-2xl font-semibold text-gold-light">{p.t}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-white/75">{p.b}</p>
+            </li>
           ))}
         </ul>
       </div>
@@ -231,23 +258,26 @@ export function ForBrands() {
   );
 }
 
-/* --------------------------------------- Privacy --------------------------------------- */
+/* ---------------------------------------- Privacy ---------------------------------------- */
 
 export function Privacy() {
   const points = [
-    { t: 'Optional details', b: 'Height and body shape are yours to share or skip.' },
-    { t: 'No photos needed', b: 'You can use every part of the stylist without uploading one.' },
+    { t: 'First name only', b: 'The Runway shows your first name, never your full name or email.' },
+    { t: 'No photos needed', b: 'Style and share looks without ever uploading one.' },
     { t: 'Delete any time', b: 'Remove all your data with one tap in Account.' },
   ];
   return (
-    <section className="relative z-10 bg-ivory py-16">
+    <section className="bg-ivory pb-20">
       <div className="page">
         <div className="hairline" />
-        <ul className="grid gap-8 py-10 sm:grid-cols-3">
+        <ul className="grid gap-8 py-12 sm:grid-cols-3">
           {points.map((p) => (
-            <li key={p.t} className="reveal">
-              <h3 className="text-2xl font-semibold text-plum-dark">{p.t}</h3>
-              <p className="mt-1 text-sm text-ink/80">{p.b}</p>
+            <li key={p.t} className="reveal flex gap-4">
+              <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gold/50 text-gold-deep" aria-hidden="true">✦</span>
+              <div>
+                <h3 className="text-2xl font-semibold text-plum-dark">{p.t}</h3>
+                <p className="mt-1 text-sm text-ink/75">{p.b}</p>
+              </div>
             </li>
           ))}
         </ul>
@@ -257,24 +287,50 @@ export function Privacy() {
   );
 }
 
+/* ---------------------------------------- Finale ---------------------------------------- */
+
+export function Finale() {
+  return (
+    <section className="relative overflow-hidden bg-night py-24 text-center text-white sm:py-32">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[14rem] leading-none text-gold/[0.08] sm:text-[24rem]" aria-hidden="true">
+        <UrduName className="leading-[1.6]" />
+      </div>
+      <div className="page relative">
+        <div className="reveal mx-auto max-w-3xl">
+          <Eyebrow light>Your turn</Eyebrow>
+          <h2 className="mt-5 text-5xl font-semibold leading-[1] sm:text-7xl">
+            Your first look is a few <span className="italic text-gold-light">minutes away.</span>
+          </h2>
+          <p className="mx-auto mt-6 max-w-xl text-lg text-white/75">
+            Create a free account, take a quick taste quiz, and step into the Studio.
+          </p>
+          <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+            <Link href="/signup" className="btn btn-light !px-8 !py-4 text-base">Start styling, it’s free</Link>
+            <Link href="/login" className="btn btn-outline-light !px-8 !py-4 text-base">I have an account</Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ---------------------------------------- Footer ---------------------------------------- */
 
 export function Footer() {
   return (
-    <footer className="relative z-10 bg-sand py-10">
+    <footer className="bg-sand py-10">
       <div className="page flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Logo />
           <UrduName className="text-lg leading-[2] text-gold-deep" />
         </div>
-        <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-5 text-sm text-ink/80">
+        <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6 text-sm text-ink/80">
           <Link href="/signup" className="flex min-h-[44px] items-center hover:text-ink">Get started</Link>
           <Link href="/login" className="flex min-h-[44px] items-center hover:text-ink">Sign in</Link>
           <Link href="/credits" className="flex min-h-[44px] items-center hover:text-ink">Photo credits</Link>
-          <LiteToggle />
         </nav>
       </div>
-      <p className="page mt-6 text-xs text-ink/70">Early preview: the sample looks on this page are demo data while we onboard brand partners.</p>
+      <p className="page mt-6 text-xs text-ink/65">Early preview: the looks on this page are illustrated samples.</p>
     </footer>
   );
 }

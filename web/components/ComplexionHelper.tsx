@@ -119,12 +119,12 @@ export default function ComplexionHelper({
 
       {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {lowConfidence && !error && (
-        <p className="mt-3 text-xs text-ink/60">The photo was a bit hard to read, so please check the result below.</p>
+        <p className="mt-3 text-xs text-ink/65">The photo was a bit hard to read, so please check the result below.</p>
       )}
 
       <div className="mt-4 space-y-3">
         <div>
-          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink/60">Undertone {skinHex && '(our guess)'}</div>
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink/65">Undertone {skinHex && '(our guess)'}</div>
           <div className="flex flex-wrap gap-2">
             {UNDERTONES.map((u) => (
               <button key={u.value} type="button" onClick={() => setUndertone(u.value)} aria-pressed={undertone === u.value} className={`chip ${undertone === u.value ? 'chip-on' : ''}`} title={u.tip}>
@@ -132,10 +132,10 @@ export default function ComplexionHelper({
               </button>
             ))}
           </div>
-          <p className="mt-1 text-xs text-ink/50">Not sure? {UNDERTONES.map((u) => `${u.tip.toLowerCase()} → ${u.label.toLowerCase()}`).join(' · ')}.</p>
+          <p className="mt-1 text-xs text-ink/65">Not sure? {UNDERTONES.map((u) => `${u.tip.toLowerCase()} → ${u.label.toLowerCase()}`).join(' · ')}.</p>
         </div>
         <div>
-          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink/60">Depth {skinHex && '(our guess)'}</div>
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink/65">Depth {skinHex && '(our guess)'}</div>
           <div className="flex flex-wrap gap-2">
             {DEPTHS.map((d) => (
               <button key={d.value} type="button" onClick={() => setDepth(d.value)} aria-pressed={depth === d.value} className={`chip ${depth === d.value ? 'chip-on' : ''}`}>
@@ -161,7 +161,7 @@ export default function ComplexionHelper({
           <button type="button" className="btn btn-primary mt-3" onClick={() => onApply({ undertone: undertone!, depth: depth!, colors: suggestion })}>
             Use these colours
           </button>
-          <p className="mt-2 text-xs text-ink/50">You can still add or remove colours below.</p>
+          <p className="mt-2 text-xs text-ink/65">You can still add or remove colours below.</p>
         </div>
       )}
     </div>

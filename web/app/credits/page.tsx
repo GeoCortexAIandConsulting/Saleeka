@@ -31,7 +31,7 @@ export default function Credits() {
         only: they are not products for sale, and no person, museum or brand shown endorses Saleeqa.
       </p>
       {rows.length === 0 ? (
-        <p className="mt-6 text-ink/60">No credited photos in use.</p>
+        <p className="mt-6 text-ink/65">No credited photos in use.</p>
       ) : (
         <ul className="mt-6 divide-y divide-line rounded-2xl border border-line bg-white">
           {rows.map((r) => (
@@ -40,9 +40,9 @@ export default function Credits() {
               <img src={r.src} alt="" className="h-16 w-12 shrink-0 rounded-lg object-cover object-top" />
               <div className="min-w-0">
                 <div className="font-semibold">
-                  {STYLE_NAMES[r.style] ?? r.style} <span className="font-normal text-ink/50">({r.group})</span>
+                  {STYLE_NAMES[r.style] ?? r.style} <span className="font-normal text-ink/65">({r.group})</span>
                 </div>
-                {r.title && <div className="truncate text-ink/60">{r.title}</div>}
+                {r.title && <div className="truncate text-ink/65">{r.title}</div>}
                 <div className="text-ink/70">
                   {r.author} ·{' '}
                   {r.licenseUrl ? <a className="underline" href={r.licenseUrl} target="_blank" rel="noreferrer">{r.license}</a> : r.license} ·{' '}

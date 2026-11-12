@@ -1,4 +1,9 @@
-export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry';
+export type Gender = 'female' | 'male';
+/** Women's looks: main, bottom, dupatta, footwear, bag, jewelry. Men's: main, bottom, waistcoat, footwear, accessory. */
+export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry' | 'waistcoat' | 'accessory';
+export const WOMEN_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'footwear', 'bag', 'jewelry'];
+export const MEN_SLOTS: Slot[] = ['main', 'bottom', 'waistcoat', 'footwear', 'accessory'];
+export const slotsFor = (g: Gender | undefined | null): Slot[] => (g === 'male' ? MEN_SLOTS : WOMEN_SLOTS);
 
 export interface Product {
   id: string;
@@ -22,6 +27,8 @@ export interface Product {
   embellishment?: 0 | 1 | 2 | 3;
   /** Product photos on the brand's own site */
   images?: string[];
+  /** Sizes in stock on the brand's site */
+  sizes?: string[];
   /** When stock and price were last read from the brand's site */
   checkedAt?: string;
   url?: string;
@@ -68,4 +75,110 @@ export interface Me {
   hasProfile: boolean;
   roundsDone: number;
   maxRounds: number;
+  /** From the taste quiz */
+  gender: Gender | null;
+}
+
+/* ------------------------------- dress-up game ------------------------------- */
+
+export interface Challenge {
+  id: string;
+  title: string;
+  occasion: string;
+  colors: string[];
+  coverage: number;
+  modest: boolean;
+  wantsDupatta: boolean;
+  gender: Gender;
+  /** Made from what shoppers asked the stylist for */
+  fromShoppers: boolean;
+  /** This week's featured challenge */
+  featured?: boolean;
+  /** A real outfit photo that fits the challenge */
+  cover?: string | null;
+  asks: number;
+  designs: number;
+}
+
+export interface Design {
+  id: string;
+  challenge: Challenge | null;
+  items: Array<{ slot: Slot; product: Product }>;
+  total: number;
+  up: number;
+  down: number;
+  createdAt: string;
+  /** The AI image of the look on a model, when the designer previewed it */
+  previewUrl?: string | null;
+}
+
+/** One card in the Studio grid: a piece and its other colours */
+export interface PieceGroup {
+  key: string;
+  variants: Product[];
+}
+
+export type PieceSort = 'best' | 'price-asc' | 'price-desc';
+
+/** A page of the Studio grid for one slot, with what the filters can offer */
+export interface PiecesPage {
+  slot: Slot;
+  groups: PieceGroup[];
+  total: number;
+  page: number;
+  pages: number;
+  brands: Array<{ id: string; name: string; count: number }>;
+  colors: string[];
+}
+
+/** A look on the Runway */
+export interface FeedLook extends Design {
+  /** The designer's first name */
+  by: string;
+  /** The designer, for a link to their profile */
+  byId: string;
+  mine: boolean;
+  myVote: 'up' | 'down' | null;
+  comments: number;
+}
+
+export interface LookComment {
+  id: string;
+  by: string;
+  text: string;
+  at: string;
+  /** Set on a reply: the top-level comment it answers */
+  parentId: string | null;
+  mine: boolean;
+  canDelete: boolean;
+}
+
+/** A like, comment or reply on one of the player's looks or comments */
+export interface AppNotification {
+  id: string;
+  type: 'like' | 'comment' | 'reply';
+  by: string;
+  text: string | null;
+  at: string;
+  read: boolean;
+  lookId: string;
+  lookTitle: string;
+  previewUrl: string | null;
+}
+
+/** A player's page */
+export interface PlayerProfile {
+  id: string;
+  name: string;
+  joined: string;
+  me: boolean;
+  stats: { looks: number; likes: number };
+  looks: FeedLook[];
+}
+
+/** This week's featured challenges and their best looks so far */
+export interface Weekly {
+  endsAt: string;
+  challenges: Challenge[];
+  top: FeedLook[];
 }

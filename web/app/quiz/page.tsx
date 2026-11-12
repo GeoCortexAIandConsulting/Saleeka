@@ -35,14 +35,15 @@ export default function Quiz() {
     setError('');
     try {
       await api('/quiz/answers', { body: answersBody(questions, answers) });
-      router.replace('/rounds');
+      // The ranking rounds show women's looks (they teach the women's stylist); men go straight to the Studio.
+      router.replace(answers.gender === 'male' ? '/studio' : '/rounds');
     } catch (e: any) {
       setError(e.message);
       setBusy(false);
     }
   }
 
-  if (!me || !q) return (<><Header /><main className="p-8 text-center text-ink/60">Loading…</main></>);
+  if (!me || !q) return (<><Header /><main className="p-8 text-center text-ink/65">Loading…</main></>);
   const pct = ((step + 1) / visible.length) * 100;
 
   return (
@@ -52,7 +53,7 @@ export default function Quiz() {
         {/* Phones: one column. Large screens: the question stays on the left while the choices scroll on the right. */}
         <div className="lg:grid lg:grid-cols-[minmax(260px,5fr)_8fr] lg:gap-12">
           <aside className="lg:sticky lg:top-24 lg:self-start">
-            <div className="mb-1 flex justify-between text-xs text-ink/60">
+            <div className="mb-1 flex justify-between text-xs text-ink/65">
               <span>Question {step + 1} of {visible.length}</span>
               <span>{Math.round(pct)}%</span>
             </div>
@@ -60,8 +61,8 @@ export default function Quiz() {
               <div className="h-full rounded-full bg-plum transition-all" style={{ width: `${pct}%` }} />
             </div>
             <h1 className="text-2xl font-bold sm:text-3xl lg:text-4xl">{q.title}</h1>
-            {q.help && <p className="mt-2 text-sm text-ink/60 lg:text-base">{q.help}</p>}
-            {q.type === 'multi' && q.max && <p className="mt-1 text-xs text-ink/50">Pick up to {q.max}</p>}
+            {q.help && <p className="mt-2 text-sm text-ink/65 lg:text-base">{q.help}</p>}
+            {q.type === 'multi' && q.max && <p className="mt-1 text-xs text-ink/65">Pick up to {q.max}</p>}
           </aside>
 
           <section className="mt-5 lg:mt-0">

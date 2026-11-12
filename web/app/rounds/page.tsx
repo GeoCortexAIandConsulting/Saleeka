@@ -77,7 +77,7 @@ export default function Rounds() {
     setBusy(false);
   }
 
-  if (!me) return (<><Header /><main className="p-8 text-center text-ink/60">Loading…</main></>);
+  if (!me) return (<><Header /><main className="p-8 text-center text-ink/65">Loading…</main></>);
 
   if (finished || (result && result.roundsLeft === 0)) {
     return (
@@ -86,7 +86,7 @@ export default function Rounds() {
         <main className="mx-auto max-w-xl px-4 py-10 text-center">
           <h1 className="text-3xl font-bold">Your taste profile is ready</h1>
           {result && <p className="mx-auto mt-3 rounded-2xl bg-plum-soft p-4 text-left text-sm text-plum-dark">{result.summary}</p>}
-          <Link href="/stylist" className="btn btn-primary mt-6">Chat with your stylist</Link>
+          <Link href="/studio" className="btn btn-primary mt-6">Style a look in the Studio</Link>
         </main>
       </>
     );
@@ -107,14 +107,14 @@ export default function Rounds() {
           <p className="mt-4 rounded-2xl bg-plum-soft p-4 text-sm text-plum-dark">{result.summary}</p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <button className="btn btn-primary" onClick={load}>Next round ({result.roundsLeft} left)</button>
-            <Link href="/stylist" className="btn btn-ghost">Skip to my stylist</Link>
+            <Link href="/studio" className="btn btn-ghost">Skip to the Studio</Link>
           </div>
         </main>
       </>
     );
   }
 
-  if (!data) return (<><Header /><main className="p-8 text-center text-ink/60">{error || 'Preparing your looks…'}</main></>);
+  if (!data) return (<><Header /><main className="p-8 text-center text-ink/65">{error || 'Preparing your looks…'}</main></>);
 
   const complete = ranks.length === data.looks.length;
   const top = ranks[0];
@@ -127,7 +127,7 @@ export default function Rounds() {
       <main className="page pb-28 pt-6 lg:pt-10">
         <div className="text-xs font-semibold uppercase tracking-wide text-gold">Round {data.round.index} of {data.round.max}</div>
         <h1 className="mt-1 text-2xl font-bold sm:text-3xl">Tap the looks in order, favourite first</h1>
-        <p className="text-sm text-ink/60">Tap again to undo. There are no wrong answers.</p>
+        <p className="text-sm text-ink/65">Tap again to undo. There are no wrong answers.</p>
 
         <div className="mt-5 grid gap-4 landscape:grid-cols-3 md:grid-cols-3 lg:gap-6">
           {data.looks.map((l) => (
@@ -165,7 +165,7 @@ export default function Rounds() {
 
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-ivory/95 backdrop-blur">
         <div className="page flex items-center gap-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className="flex-1 text-sm text-ink/60">{complete ? 'Ready to submit' : `${ranks.length} of ${data.looks.length} ranked`}</div>
+          <div className="flex-1 text-sm text-ink/65">{complete ? 'Ready to submit' : `${ranks.length} of ${data.looks.length} ranked`}</div>
           <button className="btn btn-primary" disabled={!complete || busy} onClick={submit}>{busy ? 'Saving…' : 'Submit ranking'}</button>
         </div>
       </div>
