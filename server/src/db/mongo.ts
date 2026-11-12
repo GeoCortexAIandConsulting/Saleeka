@@ -1,5 +1,5 @@
 import { MongoClient, type Db, type Filter as MongoFilter } from 'mongodb';
-import type { Collection, Doc, Filter } from './collection.js';
+import type { Collection, Doc, Filter, FindOptions } from './collection.js';
 
 /**
  * Pass-through adapter to the official MongoDB driver. Documents use our string `id`
@@ -33,12 +33,19 @@ export class MongoCollection<T extends Doc> implements Collection<T> {
     await this.col.insertOne(this.toDoc(doc));
     return doc;
   }
+  async increment(filter: Filter<T>, field: keyof T & string, by = 1) {
+    await this.col.updateOne(this.toFilter(filter), { $inc: { [field]: by } });
+  }
   async findOne(filter: Filter<T>) {
     const raw = await this.col.findOne(this.toFilter(filter));
     return raw ? this.fromDoc(raw) : null;
   }
-  async find(filter: Filter<T> = {}) {
-    const raw = await this.col.find(this.toFilter(filter)).toArray();
+  async find(filter: Filter<T> = {}, options: FindOptions<T> = {}) {
+    let cursor = this.col.find(this.toFilter(filter));
+    if (options.sort) cursor = cursor.sort(Object.fromEntries(Object.entries(options.sort).map(([k, v]) => [k === 'id' ? '_id' : k, v as 1 | -1])));
+    if (options.skip) cursor = cursor.skip(options.skip);
+    if (options.limit !== undefined) cursor = cursor.limit(options.limit);
+    const raw = await cursor.toArray();
     return raw.map((r) => this.fromDoc(r));
   }
   async update(filter: Filter<T>, patch: Partial<T>) {

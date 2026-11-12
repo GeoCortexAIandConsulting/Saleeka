@@ -36,6 +36,24 @@ function contract(make: () => Promise<Collection<Item>>) {
     expect(doc.note).toBeUndefined();
     expect('note' in doc && doc.note !== undefined).toBe(false); // gone, not stored as null
   });
+
+  it('filters with $ne and comparisons, and sorts, skips and limits the same way', async () => {
+    const c = await make();
+    for (const [id, qty, note] of [['q1', 1, 'draft'], ['q2', 2, undefined], ['q3', 3, 'x'], ['q4', 3, undefined], ['q5', 5, 'x']] as const) {
+      await c.insert({ id, name: id, qty, ...(note ? { note } : {}) });
+    }
+    const ids = (docs: Item[]) => docs.map((d) => d.id);
+    // $ne also matches documents without the field (a look with no status is published).
+    expect(ids(await c.find({ id: { $in: ['q1', 'q2', 'q3', 'q4', 'q5'] }, note: { $ne: 'draft' } }, { sort: { id: 1 } }))).toEqual(['q2', 'q3', 'q4', 'q5']);
+    expect(ids(await c.find({ id: { $in: ['q1', 'q2', 'q3', 'q4', 'q5'] }, qty: { $gte: 2, $lt: 5 } }, { sort: { id: 1 } }))).toEqual(['q2', 'q3', 'q4']);
+    expect(ids(await c.find({ id: { $in: ['q1', 'q2', 'q3', 'q4', 'q5'] }, qty: { $lte: 1 } }))).toEqual(['q1']);
+    // Comparisons never match a missing field.
+    expect(ids(await c.find({ id: { $in: ['q1', 'q2', 'q3', 'q4', 'q5'] }, note: { $gt: 'a' } }, { sort: { id: 1 } }))).toEqual(['q1', 'q3', 'q5']);
+    // Sort on several fields (ties broken by the second), then skip and limit.
+    const sorted = await c.find({ id: { $in: ['q1', 'q2', 'q3', 'q4', 'q5'] } }, { sort: { qty: -1, id: -1 }, skip: 1, limit: 3 });
+    expect(ids(sorted)).toEqual(['q4', 'q3', 'q2']);
+    expect(await c.count({ id: { $in: ['q1', 'q2', 'q3', 'q4', 'q5'] }, qty: { $gt: 2 } })).toBe(3);
+  });
 }
 
 describe('MemoryCollection contract', () => {
