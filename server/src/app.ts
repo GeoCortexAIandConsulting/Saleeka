@@ -14,18 +14,24 @@ import { answersSchema, buildProfile, currentAnswers, publicQuestions, updatePro
 import { createRound, submitRound, MAX_ROUNDS, QUICK_TAGS } from './services/rounds.js';
 import { handleChat, swapLookItem } from './services/chat.js';
 import { hydrateLooks, uid } from './services/looks.js';
-import { SLOTS, type AvatarFace } from './types.js';
+import { ALL_SLOTS, OCCASIONS, SLOTS, slotsFor, type AvatarFace, type Occasion, type Product } from './types.js';
 import { seedIfEmpty } from './data/seedDb.js';
+import { deletePreviews, previewDesign, previewEnabled } from './services/preview.js';
+import { challengeCovers, showcase, FEED_SORTS, listNotifications, markNotificationsRead, playerProfile, unreadCount, weekly } from './services/game.js';
+import { addComment, deleteComment, deleteGameData, feed, feedLook, gamePieces, PIECE_SORTS, gameItems, isPublished, listComments, publishDesign, hydrateDesigns, listChallenges, loadChallenge, nextDesignToRate, publicChallenge, seedChallenges, submitDesign, voteDesign } from './services/game.js';
 
 export interface AppOptions {
   repos: Repos;
   llm: Llm;
   /** Disable rate limits (tests) */
   rateLimit?: boolean;
+  /** How long the Studio keeps the catalogue in memory (default: 1 minute; off when rate limits are off, as in tests) */
+  catalogCacheMs?: number;
 }
 
-export async function createApp({ repos, llm, rateLimit: limit = true }: AppOptions) {
+export async function createApp({ repos, llm, rateLimit: limit = true, catalogCacheMs }: AppOptions) {
   await seedIfEmpty(repos);
+  await seedChallenges(repos);
   const app = express();
   if (config.isProd) app.set('trust proxy', 1);
   app.use(helmet());
@@ -41,6 +47,18 @@ export async function createApp({ repos, llm, rateLimit: limit = true }: AppOpti
     : (_q: Request, _s: Response, n: NextFunction) => n();
   const chatLimiter = limit
     ? rateLimit({ windowMs: 10 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false })
+    : (_q: Request, _s: Response, n: NextFunction) => n();
+
+  // Each preview is a paid AI image: no bursts (the daily limit is in services/preview.ts).
+  const previewLimiter = limit
+    ? rateLimit({ windowMs: 60 * 1000, limit: 3, standardHeaders: true, legacyHeaders: false, message: { error: 'One preview at a time, please: try again in a minute.' } })
+    : (_req: Request, _res: Response, next: NextFunction) => next();
+  // Likes are cheap to send, so a script could flood them (and the notifications they make).
+  const voteLimiter = limit
+    ? rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Slow down a little: try again in a minute.' } })
+    : (_q: Request, _s: Response, n: NextFunction) => n();
+  const commentLimiter = limit
+    ? rateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Slow down a little: try commenting again in a few minutes.' } })
     : (_q: Request, _s: Response, n: NextFunction) => n();
 
   const uidOf = (res: Response) => res.locals.userId as string;
@@ -112,6 +130,8 @@ export async function createApp({ repos, llm, rateLimit: limit = true }: AppOpti
       hasProfile: !!profile,
       roundsDone: profile?.roundsDone ?? 0,
       maxRounds: MAX_ROUNDS,
+      // From the taste quiz: which side of the Studio to open first
+      gender: profile?.gender ?? null,
     });
   });
 
@@ -188,6 +208,8 @@ export async function createApp({ repos, llm, rateLimit: limit = true }: AppOpti
   // Privacy promise: one call deletes everything we hold about the user (photo and avatar included).
   app.delete('/api/me', requireAuth, async (_req, res) => {
     const id = uidOf(res);
+    await deleteGameData(repos, id);
+    await deletePreviews(repos, id);
     await repos.looks.delete({ userId: id });
     await repos.rounds.delete({ userId: id });
     await repos.sessions.delete({ userId: id });
@@ -293,6 +315,223 @@ export async function createApp({ repos, llm, rateLimit: limit = true }: AppOpti
     const { slot } = z.object({ slot: z.enum(SLOTS as [string, ...string[]]) }).parse(req.body);
     const profile = await loadProfile(uidOf(res));
     res.json({ look: await swapLookItem(repos, profile, String(req.params.id), slot as (typeof SLOTS)[number]) });
+  });
+
+  /* -------------------------------- game -------------------------------- */
+  // The Studio filters the whole catalogue on every search and page: keep it in memory briefly.
+  const catalogTtl = catalogCacheMs ?? (limit ? 60_000 : 0);
+  let catalogCache: { at: number; list: Promise<Product[]> } | null = null;
+  const catalog = () => {
+    if (!catalogCache || Date.now() - catalogCache.at > catalogTtl) {
+      const list = repos.products.find();
+      list.catch(() => (catalogCache = null));
+      catalogCache = { at: Date.now(), list };
+    }
+    return catalogCache.list;
+  };
+
+  // Challenge cover photos, for every open challenge: worked out from the whole catalogue, so kept
+  // for 10 minutes (a newly asked-for challenge gets its cover within that time).
+  let coverCache: { at: number; covers: Promise<Map<string, string>> } | null = null;
+  const covers = () => {
+    if (!coverCache || Date.now() - coverCache.at > 10 * 60 * 1000 || !catalogTtl) {
+      const made = (async () => {
+        const ids = (await listChallenges(repos)).map((c) => c.id);
+        const all = await repos.challenges.find({ id: { $in: ids } });
+        const ordered = ids.map((id) => all.find((c) => c.id === id)).filter((c): c is NonNullable<typeof c> => Boolean(c));
+        return challengeCovers(await catalog(), ordered);
+      })();
+      made.catch(() => (coverCache = null));
+      coverCache = { at: Date.now(), covers: made };
+    }
+    return coverCache.covers;
+  };
+
+  // The landing page's Runway: real trending looks, open to everyone (they are public pages).
+  let showcaseCache: { at: number; body: unknown } | null = null;
+  app.get('/api/showcase', async (_req, res) => {
+    if (!showcaseCache || Date.now() - showcaseCache.at > 5 * 60 * 1000 || !catalogTtl) showcaseCache = { at: Date.now(), body: { looks: await showcase(repos) } };
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json(showcaseCache.body);
+  });
+
+  // The dress-up game needs an account but not the quiz, so new players can start straight away.
+  app.get('/api/game/challenges', requireAuth, async (_req, res) => {
+    const [challenges, cover] = await Promise.all([listChallenges(repos), covers()]);
+    res.json({ challenges: challenges.map((c) => ({ ...c, cover: cover.get(c.id) ?? null })) });
+  });
+
+  // Everything that fits the challenge, from every brand, best fit first.
+  // The landing page's demo: a women's Mehndi or a men's Eid challenge with a few real pieces per
+  // slot, open to everyone. Up to four per slot, from different brands where possible; cached so
+  // visitors never load the whole catalogue each time.
+  const demoCache = new Map<string, { at: number; body: unknown }>();
+  app.get('/api/demo/look', async (req, res) => {
+    const gender = req.query.gender === 'male' ? 'male' : 'female';
+    let cached = demoCache.get(gender);
+    if (!cached || Date.now() - cached.at > 10 * 60 * 1000) {
+      const ids = gender === 'male' ? ['seed-men-eid-white', 'seed-men-mehndi'] : ['seed-mehndi-mustard', 'seed-mehndi-green'];
+      let challenge = null;
+      for (const id of ids) challenge ??= await repos.challenges.findOne({ id });
+      if (!challenge) throw new AppError(404, 'No demo challenge');
+      const all = gameItems(await repos.products.find(), challenge);
+      // A first impression: clean names (no "Rts | …" catalogue codes or broken characters), no abayas
+      // standing in for a dupatta, and prices most shoppers recognise.
+      const showcase = (p: Product) => /^[A-Za-z][A-Za-z0-9 '’&.-]{2,40}$/.test(p.title) && !/abaya/i.test(p.title) && p.price <= 60000;
+      const pick = (list: Product[] = []) => {
+        const photo = list.filter((p) => p.images?.length);
+        const nice = photo.filter(showcase);
+        const withPhoto = nice.length >= 3 ? nice : photo;
+        const out: Product[] = [];
+        for (const p of withPhoto) if (out.length < 4 && !out.some((o) => o.brandId === p.brandId)) out.push(p);
+        for (const p of withPhoto) if (out.length < 4 && !out.includes(p)) out.push(p);
+        return out;
+      };
+      const items = Object.fromEntries(slotsFor(gender).map((s) => [s, pick(all[s])]));
+      cached = { at: Date.now(), body: { challenge: publicChallenge(challenge, 0), items } };
+      demoCache.set(gender, cached);
+    }
+    res.set('Cache-Control', 'public, max-age=600');
+    res.json(cached.body);
+  });
+
+  app.get('/api/game/challenges/:id/items', requireAuth, async (req, res) => {
+    const challenge = await loadChallenge(repos, String(req.params.id));
+    res.json({ challenge: publicChallenge(challenge, 0), items: gameItems(await catalog(), challenge) });
+  });
+
+  // One slot's pieces for a challenge: colour variants grouped, searched, filtered, sorted and paged.
+  const piecesQuery = z.object({
+    slot: z.enum(ALL_SLOTS as [string, ...string[]]),
+    q: z.string().trim().max(60).optional(),
+    brand: z.string().max(80).optional(),
+    color: z.string().max(30).optional(),
+    min: z.coerce.number().min(0).optional(),
+    max: z.coerce.number().min(0).optional(),
+    sort: z.enum(PIECE_SORTS).optional(),
+    page: z.coerce.number().int().min(1).max(500).optional(),
+  });
+  app.get('/api/game/challenges/:id/pieces', requireAuth, async (req, res) => {
+    const challenge = await loadChallenge(repos, String(req.params.id));
+    const query = piecesQuery.parse(req.query);
+    res.json(gamePieces(await catalog(), challenge, query as Parameters<typeof gamePieces>[2]));
+  });
+
+  const designSchema = z.object({
+    challengeId: z.string().min(1).max(80),
+    items: z.array(z.object({ slot: z.enum(ALL_SLOTS as [string, ...string[]]), productId: z.string().max(200) })).min(1).max(SLOTS.length),
+    /** true: keep it private to preview on the model first, then publish */
+    draft: z.boolean().optional(),
+  });
+
+  app.post('/api/game/designs', requireAuth, async (req, res) => {
+    const body = designSchema.parse(req.body);
+    const design = await submitDesign(repos, uidOf(res), body as Parameters<typeof submitDesign>[2]);
+    res.status(201).json({ design: (await hydrateDesigns(repos, [design]))[0] });
+  });
+
+  // Publish a draft once the player is happy with how it looks on the model.
+  app.post('/api/game/designs/:id/publish', requireAuth, async (req, res) => {
+    const design = await publishDesign(repos, uidOf(res), String(req.params.id));
+    res.json({ design: (await hydrateDesigns(repos, [design]))[0] });
+  });
+
+  // The AI preview of a draft on a model: is it switched on, make one (about half a minute), show one.
+  app.get('/api/game/preview', requireAuth, (_req, res) => {
+    res.json({ enabled: previewEnabled() });
+  });
+
+  app.post('/api/game/designs/:id/preview', requireAuth, previewLimiter, async (req, res) => {
+    const { anotherModel } = z.object({ anotherModel: z.boolean().optional() }).parse(req.body ?? {});
+    const design = await previewDesign(repos, uidOf(res), String(req.params.id), { anotherModel });
+    res.json({ design: (await hydrateDesigns(repos, [design]))[0] });
+  });
+
+  // A look's image: open to everyone once the look is published (shared links show it), and to
+  // its designer while it is a draft. The base model photos are never served.
+  app.get('/api/previews/:id', optionalAuth, async (req, res) => {
+    const id = String(req.params.id);
+    const p = await repos.previews.findOne({ id });
+    if (!p || !p.userId) throw new AppError(404, 'Preview not found');
+    if (p.userId !== res.locals.userId) {
+      const published = (await repos.designs.find({ previewId: id })).some(isPublished);
+      if (!published) throw new AppError(404, 'Preview not found');
+    }
+    res.set('Cache-Control', 'private, max-age=31536000, immutable');
+    res.type(p.mime).send(Buffer.from(p.data, 'base64'));
+  });
+
+  app.get('/api/game/designs/mine', requireAuth, async (_req, res) => {
+    const mine = (await repos.designs.find({ userId: uidOf(res) })).filter(isPublished);
+    mine.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.json({ designs: await hydrateDesigns(repos, mine) });
+  });
+
+  app.get('/api/game/rate/next', requireAuth, async (_req, res) => {
+    res.json({ design: await nextDesignToRate(repos, uidOf(res)) });
+  });
+
+  app.post('/api/game/designs/:id/vote', requireAuth, voteLimiter, async (req, res) => {
+    const { up } = z.object({ up: z.boolean().nullable() }).parse(req.body);
+    await voteDesign(repos, uidOf(res), String(req.params.id), up);
+    res.json({ ok: true });
+  });
+
+  /* ------------------------------ My taste feed ------------------------------ */
+  // Everyone's published looks, newest first (signed-in players only).
+  app.get('/api/feed', requireAuth, async (req, res) => {
+    const before = typeof req.query.before === 'string' ? req.query.before : undefined;
+    const gender = req.query.gender === 'male' || req.query.gender === 'female' ? req.query.gender : undefined;
+    const sort = z.enum(FEED_SORTS).optional().parse(req.query.sort);
+    const occasion = z.enum(OCCASIONS as [Occasion, ...Occasion[]]).optional().parse(req.query.occasion || undefined);
+    res.json(await feed(repos, uidOf(res), before, { gender, occasion }, sort));
+  });
+
+  // One look, for its own page on the Runway. Shared links open it for anyone, read-only.
+  app.get('/api/feed/:id', optionalAuth, async (req, res) => {
+    res.json({ look: await feedLook(repos, res.locals.userId ?? '', String(req.params.id)) });
+  });
+
+  app.get('/api/game/designs/:id/comments', optionalAuth, async (req, res) => {
+    res.json({ comments: await listComments(repos, res.locals.userId ?? '', String(req.params.id)) });
+  });
+
+  // This week's featured challenges and their most liked looks so far.
+  app.get('/api/game/weekly', requireAuth, async (_req, res) => {
+    const [week, cover] = await Promise.all([weekly(repos, uidOf(res)), covers()]);
+    res.json({ ...week, challenges: week.challenges.map((c) => ({ ...c, cover: cover.get(c.id) ?? null })) });
+  });
+
+  // A player's page: their looks and the likes they earned (first name only).
+  app.get('/api/players/:id', requireAuth, async (req, res) => {
+    res.json(await playerProfile(repos, uidOf(res), String(req.params.id)));
+  });
+
+  /* ------------------------------ notifications ------------------------------ */
+  // Likes on your looks, comments on them, and replies to your comments.
+  app.get('/api/notifications', requireAuth, async (_req, res) => {
+    res.json(await listNotifications(repos, uidOf(res)));
+  });
+
+  app.get('/api/notifications/unread', requireAuth, async (_req, res) => {
+    res.json({ unread: await unreadCount(repos, uidOf(res)) });
+  });
+
+  app.post('/api/notifications/read', requireAuth, async (_req, res) => {
+    await markNotificationsRead(repos, uidOf(res));
+    res.json({ ok: true });
+  });
+
+  app.post('/api/game/designs/:id/comments', requireAuth, commentLimiter, async (req, res) => {
+    const { text, parentId } = z
+      .object({ text: z.string().trim().min(1, 'Write a comment first').max(300, 'Keep comments under 300 characters'), parentId: z.string().max(64).optional() })
+      .parse(req.body);
+    res.status(201).json({ comments: await addComment(repos, uidOf(res), String(req.params.id), text, parentId) });
+  });
+
+  app.delete('/api/game/comments/:id', requireAuth, async (req, res) => {
+    await deleteComment(repos, uidOf(res), String(req.params.id));
+    res.json({ deleted: true });
   });
 
   /* ----------------------- click-out tracking + partners ----------------------- */

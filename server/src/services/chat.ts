@@ -7,6 +7,7 @@ import type { Llm } from './llm.js';
 import { styleLooks } from './stylist.js';
 import { AppError } from '../errors.js';
 import type { Slot } from '../types.js';
+import { recordSearchChallenge } from './game.js';
 
 export interface ChatReply {
   sessionId: string;
@@ -149,7 +150,8 @@ export async function handleChat(
   }
   if (!constraints.occasion) constraints.occasion = profile.occasions[0];
 
-  const catalog = await repos.products.find();
+  // The stylist and its ranking rounds dress women only, so menswear stays out.
+  const catalog = (await repos.products.find()).filter((p) => p.gender !== 'male');
   // Rules find which request can be met (relaxing it if needed, and saying so); the stylist styles it.
   const { looks: ruleLooks, notes, request } = composeWithRelaxation(catalog, profile, constraints);
   const styled = ruleLooks.length ? await styleLooks(llm, catalog, profile, request) : { looks: [], notes: [], styledByAi: 0 };
@@ -169,6 +171,8 @@ export async function handleChat(
   let k = 0;
   const reasons = composed.map((_, i) => styled.notes[i] || explained[k++] || '');
   const looks = await persistLooks(repos, profile.userId, composed, 'chat', reasons);
+  // Feeds the dress-up game's challenges (structured request only); never blocks the reply.
+  await recordSearchChallenge(repos, profile, constraints).catch((e) => console.warn('Could not record a game challenge:', e));
   const reply = `Here ${looks.length === 1 ? 'is 1 look' : `are ${looks.length} looks`} for your ${constraints.occasion}. Pick one, swap any piece, or tell me what to change.`;
   session.constraints = constraints;
   session.lookIds.push(...looks.map((l) => l.id));
@@ -186,7 +190,8 @@ export async function swapLookItem(
   const look = await repos.looks.findOne({ id: lookId, userId: profile.userId });
   if (!look) throw new AppError(404, 'Look not found');
   const [hydrated] = await hydrateLooks(repos, [look]);
-  const catalog = await repos.products.find();
+  // The stylist and its ranking rounds dress women only, so menswear stays out.
+  const catalog = (await repos.products.find()).filter((p) => p.gender !== 'male');
   const occasion = look.occasion ?? undefined;
   // A swap must keep honouring what the shopper asked for in this chat.
   const sessions = await repos.sessions.find({ userId: profile.userId });
