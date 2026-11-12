@@ -75,13 +75,60 @@ describe('tagging real catalog items', () => {
     expect(ok(raw({ title: 'Ivory Straight Trousers', productType: 'Bottoms' }))).toMatchObject({ slot: 'bottom', length: 'full', modesty: 5 });
   });
 
-  it("drops menswear, home, fragrance and items it cannot colour or price", () => {
+  it('never files rings or jewellery sets as outfits (the word "set" is not a suit here)', () => {
+    expect(ok(raw({ title: 'Golden Ring Set', productType: 'Jewelry' }))).toMatchObject({ slot: 'jewelry', silhouette: 'ring' });
+    expect(ok(raw({ title: 'Mixed Ring Set', productType: 'Accessories', text: 'Colour: Silver' }))).toMatchObject({ slot: 'jewelry', silhouette: 'ring' });
+    expect(ok(raw({ title: 'Pave Cuff Ring', productType: 'Accessories', text: 'Colour: Gold' }))).toMatchObject({ slot: 'jewelry', silhouette: 'ring' });
+    expect(ok(raw({ title: 'Silver Ring - EAWR5-005', productType: 'Woman Rings' }))).toMatchObject({ slot: 'jewelry', silhouette: 'ring' });
+    expect(ok(raw({ title: 'Celestia Jewelry Set - EAWJS6-015', productType: 'Woman Sets', text: 'Colour: Gold' })).slot).toBe('jewelry');
+    expect(ok(raw({ title: 'Choker Necklace set', productType: 'Accessories', text: 'Colour: Gold' }))).toMatchObject({ slot: 'jewelry', silhouette: 'necklace set' });
+    expect(ok(raw({ title: 'Hanarah Set', productType: 'Jewelry', text: 'Colour: Gold' })).slot).toBe('jewelry');
+    // A real suit is still a suit, and "Spring" is not a ring.
+    expect(ok(raw({ title: 'Spring Lawn 3 Piece Set', productType: 'Unstitched', text: 'Colour: Mint' })).slot).toBe('main');
+  });
+
+  it("drops children's wear, home, fragrance and items it cannot colour or price", () => {
     const reason = (r: RawItem) => (normalize(r, src, '') as { reason?: string }).reason;
-    expect(reason(raw({ title: 'Embroidered Blended Kurta', productType: 'Menswear Kurtas', tags: ['Menswear'], options: { Color: ['Grey'] } }))).toBe('not-women');
+    expect(reason(raw({ title: 'Boys Printed Kurta', productType: 'Kids', options: { Color: ['Grey'] } }))).toBe('kids');
     expect(reason(raw({ title: 'XOXO', productType: 'Body Mists', text: 'Colour: Pink' }))).toBe('not-clothing');
     expect(reason(raw({ title: 'Printed Bed Sheet', productType: 'Home', options: { Color: ['Blue'] } }))).toBe('not-clothing');
+    // Loose fabric by the metre (Maria B "LF-" items) is not a suit; an unstitched suit still is.
+    expect(reason(raw({ title: 'Embroidered Net Fabric', productType: 'Unstitched', text: 'Fabric: Net 1 meter\nColour: Honey Mustard\nDupatta' }))).toBe('not-clothing');
+    expect(ok(raw({ title: 'Embroidered Lawn Suit Fabric - 3 Piece', productType: 'Unstitched', text: 'Colour: Mint' })).slot).toBe('main');
     expect(reason(raw({ title: 'Printed Kurta', productType: 'Pret' }))).toBe('no-colour');
     expect(reason(raw({ title: 'Black Kurta', variants: [{ title: 'M', price: 0, available: false }] }))).toBe('no-price');
+  });
+
+  it('tags menswear: its gender, slot, kind, whether it brings its bottom, and its occasions', () => {
+    const men = (o: Partial<RawItem>, from: BrandSource = src) => {
+      const n = normalize(raw(o), from, '');
+      if (!n.ok) throw new Error(`dropped: ${n.reason}`);
+      return n.product;
+    };
+    // Labelled men's in a women's brand
+    expect(men({ title: 'Embroidered Blended Kurta', productType: 'Menswear Kurtas', tags: ['Menswear'], options: { Color: ['Grey'] } })).toMatchObject({ gender: 'male', slot: 'main', silhouette: 'kurta', includesBottom: false, modesty: 5 });
+    // A menswear-only brand: unlabelled items are men's
+    const diners: BrandSource = { id: 'diners', name: 'Diners', origin: 'https://example.pk', platform: 'shopify', tier: 'mid', sells: 'male' };
+    expect(men({ title: 'Ivory Kameez Shalwar', productType: 'Shalwar Kameez', options: { Color: ['Ivory'] } }, diners)).toMatchObject({ gender: 'male', slot: 'main', includesBottom: true });
+    const sherwani = men({ title: 'Embroidered Gold Sherwani', productType: 'Sherwani', options: { Color: ['Gold'] } }, diners);
+    expect(sherwani).toMatchObject({ silhouette: 'sherwani', includesBottom: true });
+    expect(sherwani.occasions).toContain('baraat');
+    expect(sherwani.occasions).not.toContain('office');
+    expect(men({ title: 'Black Waist Coat', productType: 'Waist Coat', options: { Color: ['Black'] } }, diners)).toMatchObject({ slot: 'waistcoat' });
+    expect(men({ title: 'Brown Peshawari Chappal', productType: 'Footwear', options: { Color: ['Brown'] } }, diners)).toMatchObject({ slot: 'footwear', silhouette: 'khussa' });
+    expect(men({ title: 'Leather Belt', productType: 'Accessories', options: { Color: ['Brown'] } }, diners)).toMatchObject({ slot: 'accessory', silhouette: 'belt' });
+    expect(men({ title: 'Classic Watch', productType: 'Watches', options: { Color: ['Silver'] } }, diners)).toMatchObject({ slot: 'accessory', silhouette: 'watch' });
+    expect(men({ title: 'Cotton Trouser', productType: 'Co-Ord Set - Pant', options: { Color: ['Navy'] } }, diners)).toMatchObject({ slot: 'bottom', silhouette: 'trouser' });
+    expect(men({ title: 'Pique Polo', productType: 'Polos', options: { Color: ['Navy'] } }, diners).occasions).toEqual(['casual', 'university']);
+    // Not styling: fragrance, undershirts, a sweater
+    const reason = (o: Partial<RawItem>, from = diners) => (normalize(raw(o), from, '') as { reason?: string }).reason;
+    expect(reason({ title: 'Oud Perfume', productType: 'FRAGRANCE', options: { Color: ['Black'] } })).toBe('not-clothing');
+    expect(reason({ title: 'Cotton Vest', productType: 'Innerwear', options: { Color: ['White'] } })).toBe('not-clothing');
+    expect(reason({ title: 'Cable Knit Sweater', productType: 'Men Sweaters', options: { Color: ['Grey'] } })).toBe('not-clothing');
+    // A brand that sells to both: an item that does not say whose it is, is left out
+    const both: BrandSource = { ...diners, id: 'edenrobe', sells: 'both' };
+    expect(reason({ title: 'Printed Kurta', productType: 'Kurta', options: { Color: ['Blue'] } }, both)).toBe('unlabelled');
+    expect(men({ title: 'Printed Kurta', productType: 'Men Kurta Shalwar', options: { Color: ['Blue'] } }, both)).toMatchObject({ gender: 'male', includesBottom: true });
   });
 
   it('marks stock and price from the variants that are available', () => {
@@ -97,6 +144,7 @@ describe('tagging real catalog items', () => {
     expect(displayTitle('SHIRT (E2376/108/001)', 'white', 'cotton', 'kurta')).toBe('Shirt');
     expect(displayTitle('Dark Beige Women Shawl-1721512118', 'beige', 'cotton', 'shawl')).toBe('Dark Beige Women Shawl');
     expect(displayTitle('2 PIECE - PRINTED SUIT - ST2STE-PRET26WV2-64', 'maroon', 'linen', 'suit')).toBe('2 Piece Printed Suit');
+    expect(displayTitle('Grey Lawn Kurti | JLK-SS26-104', 'grey', 'lawn', 'kurta')).toBe('Grey Lawn Kurti');
     expect(displayTitle('3 Piece Printed Lawn Suit', 'pink', 'lawn', 'suit')).toBe('3 Piece Printed Lawn Suit');
   });
 

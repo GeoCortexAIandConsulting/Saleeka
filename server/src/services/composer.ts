@@ -77,13 +77,14 @@ function mainScore(p: Product, profile: Profile, req: ComposeRequest, season: 's
   return s;
 }
 
-const DRESSY = new Set(['heel', 'khussa', 'clutch', 'potli', 'jhumkay', 'necklace set', 'maang tikka']);
-const CASUAL_KIND = new Set(['sneaker', 'flat', 'sandal', 'tote', 'shoulder bag']);
-const TOO_CASUAL_FOR_FESTIVE = new Set(['sneaker', 'tote', 'shoulder bag']);
-const TOO_DRESSY_FOR_DAYTIME = new Set(['clutch', 'potli', 'jhumkay', 'necklace set', 'maang tikka']);
+// Men's kinds sit alongside women's: a sherwani or cufflinks dress up; a tee, polo or jeans dress down.
+const DRESSY = new Set(['heel', 'khussa', 'clutch', 'potli', 'jhumkay', 'necklace set', 'maang tikka', 'cufflinks']);
+const CASUAL_KIND = new Set(['sneaker', 'flat', 'sandal', 'tote', 'shoulder bag', 'cap']);
+const TOO_CASUAL_FOR_FESTIVE = new Set(['sneaker', 'tote', 'shoulder bag', 'tee', 'polo', 'jeans', 'cap']);
+const TOO_DRESSY_FOR_DAYTIME = new Set(['clutch', 'potli', 'jhumkay', 'necklace set', 'maang tikka', 'sherwani', 'prince coat', 'cufflinks']);
 
 /** Hard rule: better a look without a bag than sneakers at Eid or a potli at the office. */
-function suitsOccasion(p: Product, occasion: Occasion | undefined): boolean {
+export function suitsOccasion(p: Product, occasion: Occasion | undefined): boolean {
   if (!occasion) return true;
   return !(FORMAL_OCCASIONS.includes(occasion) ? TOO_CASUAL_FOR_FESTIVE : TOO_DRESSY_FOR_DAYTIME).has(p.silhouette);
 }
@@ -93,7 +94,7 @@ function suitsOccasion(p: Product, occasion: Occasion | undefined): boolean {
  * occasions; accessories by their kind (heels, khussa, clutch, jhumkay dress up; sneakers, totes down).
  */
 export function formality(p: Product): number {
-  if (p.slot === 'main' || p.slot === 'dupatta' || p.slot === 'bottom') {
+  if (p.slot === 'main' || p.slot === 'dupatta' || p.slot === 'bottom' || p.slot === 'waistcoat') {
     const formalOnly = p.occasions.every((o) => FORMAL_OCCASIONS.includes(o));
     return Math.min(3, p.embellishment + (formalOnly ? 1 : 0));
   }
@@ -179,7 +180,8 @@ function prepare(catalog: Product[], profile: Profile, req: ComposeRequest, now:
   const coverage = req.extraModesty ? Math.min(5, Math.max(4, profile.coverage + 1)) : profile.coverage;
   const minModesty = minModestyFor(coverage);
   const occasion = req.occasion;
-  const usable = catalog.filter((p) => p.inStock && !avoidedBy(p, profile) && suitsOccasion(p, occasion));
+  // The stylist dresses women: menswear never enters its looks.
+  const usable = catalog.filter((p) => p.gender !== 'male' && p.inStock && !avoidedBy(p, profile) && suitsOccasion(p, occasion));
   const bySlot = (slot: Slot) => usable.filter((p) => p.slot === slot);
   const strictBottoms = bySlot('bottom').filter((p) => p.modesty >= (minModesty >= 3.5 ? 5 : minModesty >= 2.5 ? 3 : 0));
   const mains = bySlot('main')
@@ -197,7 +199,8 @@ function prepare(catalog: Product[], profile: Profile, req: ComposeRequest, now:
   return { season, maxBudget, occasion, bySlot, strictBottoms, mains };
 }
 
-export type AccessorySlot = Exclude<Slot, 'main'>;
+/** The stylist dresses women only: its looks never use the men's waistcoat or accessory slots. */
+export type AccessorySlot = Exclude<Slot, 'main' | 'waistcoat' | 'accessory'>;
 
 export interface StylingOption {
   main: Product;
@@ -430,7 +433,7 @@ export function swapSlot(
   const taken = new Set(current.map((i) => i.product.id));
   const minModesty = minModestyFor(profile.coverage);
   const pool = catalog
-    .filter((p) => p.slot === slot && p.inStock && !avoidedBy(p, profile))
+    .filter((p) => p.gender !== 'male' && p.slot === slot && p.inStock && !avoidedBy(p, profile))
     .filter((p) => fitsOccasion(p, occasion, profile) && suitsOccasion(p, occasion))
     .filter((p) => slot !== 'bottom' || p.modesty >= (minModesty >= 3.5 ? 5 : minModesty >= 2.5 ? 3 : 0))
     .filter((p) => slot !== 'dupatta' || !scarfOnly(profile, req) || p.silhouette === 'scarf')

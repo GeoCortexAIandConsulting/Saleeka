@@ -1,7 +1,15 @@
 // Core domain types shared across the API.
 
-export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry';
+export type Gender = 'female' | 'male';
+
+/** Women's looks use the first six; men's use main, bottom, waistcoat, footwear and accessory. */
+export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry' | 'waistcoat' | 'accessory';
+/** The slots of a women's look (the stylist, the ranking rounds and saved looks use only these). */
 export const SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'footwear', 'bag', 'jewelry'];
+/** The slots of a men's look in the Studio. */
+export const MEN_SLOTS: Slot[] = ['main', 'bottom', 'waistcoat', 'footwear', 'accessory'];
+export const ALL_SLOTS: Slot[] = [...SLOTS, 'waistcoat', 'accessory'];
+export const slotsFor = (g: Gender | undefined): Slot[] => (g === 'male' ? MEN_SLOTS : SLOTS);
 
 export type Tier = 'budget' | 'mid' | 'premium';
 export type Sleeve = 'sleeveless' | 'short' | 'three-quarter' | 'full';
@@ -43,6 +51,8 @@ export interface Product {
   tier: Tier;
   title: string;
   slot: Slot;
+  /** Who it is for; absent means women's (every product imported before menswear) */
+  gender?: Gender;
   /** Price in PKR */
   price: number;
   colors: string[]; // names from the palette
@@ -191,10 +201,101 @@ export interface ChatSession {
   createdAt: string;
 }
 
+/**
+ * A design challenge in the dress-up game. Seeded challenges ship with the app; the stylist adds
+ * challenges from what shoppers ask for, stored only as structured fields (never the message or who
+ * asked), and shown once enough shoppers have asked for something similar.
+ */
+export interface Challenge {
+  id: string;
+  /** Same request, same key: occasion | colours | coverage | dupatta (no budget: the game has none) */
+  key: string;
+  occasion: Occasion;
+  colors: string[];
+  /** 1 (relaxed) to 5 (fully covered), like the quiz */
+  coverage: number;
+  wantsDupatta: boolean;
+  /** Women's or men's look; absent means women's */
+  gender?: Gender;
+  source: 'seed' | 'search';
+  /** How many stylist searches asked for this */
+  asks: number;
+  createdAt: string;
+}
+
+/** A look a player put together for a challenge. */
+export interface Design {
+  id: string;
+  userId: string;
+  challengeId: string;
+  brandIds: string[];
+  items: LookItem[];
+  /** PKR total of the pieces: no limit in the game, kept so looks can be matched to a shopper's budget */
+  total: number;
+  up: number;
+  down: number;
+  createdAt: string;
+  /** A draft is private to its designer until they publish it. Absent = published. */
+  status?: 'draft' | 'published';
+  /** The AI image of the look on a model, if the designer previewed it */
+  previewId?: string;
+}
+
+/** Something that happened to a player's look or comment: a like, a comment, or a reply. */
+export interface AppNotification {
+  id: string;
+  /** Who it is for */
+  userId: string;
+  type: 'like' | 'comment' | 'reply';
+  /** Who did it */
+  actorId: string;
+  designId: string;
+  commentId?: string;
+  /** The start of the comment, for comments and replies */
+  text?: string;
+  at: string;
+  read: boolean;
+}
+
+/** An AI-made image of a look on a model (or the fixed base model photo it is made from). */
+export interface PreviewImage {
+  id: string;
+  /** Absent on the shared base model photos */
+  userId?: string;
+  /** Same player + same pieces = same key, so a look is never generated twice */
+  key: string;
+  /** Which of our models wears the look (see services/preview.ts) */
+  variant?: number;
+  mime: string;
+  /** base64 */
+  data: string;
+  at: string;
+}
+
+/** A comment on a published look in the My taste feed. */
+export interface DesignComment {
+  id: string;
+  designId: string;
+  userId: string;
+  text: string;
+  at: string;
+  /** Set on a reply: the top-level comment it answers (threads are one level deep) */
+  parentId?: string;
+}
+
+/** One player's 👍/👎 on a design (their own included); id is `${designId}:${userId}`. */
+export interface DesignVote {
+  id: string;
+  designId: string;
+  userId: string;
+  up: boolean;
+  at: string;
+}
+
 export interface EventRecord {
   id: string;
   userId?: string;
-  type: 'impression' | 'click' | 'save' | 'swap';
+  type: 'impression' | 'click' | 'save' | 'swap' | 'preview';
   productId?: string;
   lookId?: string;
   brandId?: string;

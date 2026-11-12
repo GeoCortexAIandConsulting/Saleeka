@@ -16,6 +16,7 @@ export const DEMO_BRANDS: Brand[] = [
   { id: 'b_soles', name: 'Demo Soles', tier: 'mid' },
   { id: 'b_carry', name: 'Demo Carry', tier: 'mid' },
   { id: 'b_jewels', name: 'Demo Jewels', tier: 'mid' },
+  { id: 'b_gents', name: 'Demo Gents', tier: 'mid' },
 ];
 
 // Small deterministic PRNG so the demo catalog is identical on every run.
@@ -34,7 +35,7 @@ const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
 const chance = (p: number) => rand() < p;
 const round100 = (n: number) => Math.round(n / 100) * 100;
 
-const CLOTHING_BRANDS = DEMO_BRANDS.filter((b) => !['b_soles', 'b_carry', 'b_jewels'].includes(b.id));
+const CLOTHING_BRANDS = DEMO_BRANDS.filter((b) => !['b_soles', 'b_carry', 'b_jewels', 'b_gents'].includes(b.id));
 const PRICE_RANGE: Record<Tier, [number, number]> = {
   budget: [2500, 7500],
   mid: [6500, 16000],
@@ -370,8 +371,64 @@ function accessories(): Product[] {
   return out;
 }
 
+/** Demo menswear: enough for every men's challenge, in fixed lists (no randomness needed). */
+function menswear(): Product[] {
+  const out: Product[] = [];
+  const add = (slot: Slot, title: string, color: string, price: number, silhouette: string, occasions: Occasion[], extra: Partial<Product> = {}) =>
+    out.push({
+      id: nextId(slot),
+      brandId: 'b_gents',
+      brandName: 'Demo Gents',
+      tier: 'mid',
+      title,
+      slot,
+      gender: 'male',
+      price,
+      colors: [color],
+      hex: PALETTE[color].hex,
+      fabric: 'cotton',
+      silhouette,
+      sheer: false,
+      embellishment: 0,
+      modesty: 5,
+      occasions,
+      seasons: ['all'],
+      includesDupatta: false,
+      includesBottom: false,
+      stitched: true,
+      sizes: ['M', 'L'],
+      inStock: true,
+      url: `https://example.com/demo/b_gents/${counter}`,
+      demo: true,
+      ...extra,
+    });
+  const EASTERN = ['white', 'ivory', 'beige', 'sky', 'mint', 'sage', 'lilac', 'peach', 'mustard', 'lemon', 'olive', 'emerald', 'maroon', 'navy', 'black', 'grey'];
+  for (const c of EASTERN) {
+    add('main', `${c} cotton kurta`, c, 4500, 'kurta', ['eid', 'mehndi', 'casual', 'university', 'office']);
+    add('main', `${c} shalwar kameez`, c, 6900, 'shalwar kameez', ['eid', 'mehndi', 'casual', 'office'], { includesBottom: true });
+    add('main', `embroidered ${c} kurta`, c, 9800, 'kurta', ['eid', 'mehndi', 'baraat', 'walima', 'party'], { embellishment: 2 });
+  }
+  for (const c of ['ivory', 'gold', 'beige', 'maroon', 'black']) {
+    add('main', `${c} sherwani`, c, 38000, 'sherwani', ['baraat', 'walima', 'mehndi', 'party'], { includesBottom: true, embellishment: 3 });
+  }
+  for (const c of ['white', 'sky', 'navy', 'grey', 'beige']) add('main', `${c} oxford shirt`, c, 3900, 'shirt', ['office', 'casual', 'university', 'party']);
+  for (const c of ['black', 'navy', 'olive']) add('main', `${c} polo`, c, 2500, 'polo', ['casual', 'university']);
+  for (const c of ['white', 'black', 'beige']) add('bottom', `${c} shalwar`, c, 1900, 'shalwar', ['eid', 'mehndi', 'baraat', 'walima', 'party', 'office', 'casual', 'university']);
+  for (const c of ['navy', 'grey', 'beige']) add('bottom', `${c} trousers`, c, 3500, 'trouser', ['eid', 'mehndi', 'baraat', 'walima', 'party', 'office', 'casual', 'university']);
+  add('bottom', 'blue jeans', 'navy', 4200, 'jeans', ['casual', 'university']);
+  for (const c of ['black', 'navy', 'maroon', 'gold', 'grey']) add('waistcoat', `${c} waistcoat`, c, 5500, 'waistcoat', ['eid', 'mehndi', 'baraat', 'walima', 'party', 'office']);
+  add('footwear', 'brown peshawari chappal', 'brown', 4800, 'khussa', ['eid', 'mehndi', 'baraat', 'walima', 'party', 'casual']);
+  add('footwear', 'gold khussa', 'gold', 5200, 'khussa', ['eid', 'mehndi', 'baraat', 'walima', 'party', 'casual']);
+  add('footwear', 'black loafers', 'black', 7500, 'loafer', ['office', 'eid', 'walima', 'baraat', 'party', 'casual']);
+  add('footwear', 'white sneakers', 'white', 6500, 'sneaker', ['casual', 'university']);
+  add('accessory', 'silver watch', 'silver', 9500, 'watch', ['office', 'casual', 'university', 'eid', 'mehndi', 'baraat', 'walima', 'party']);
+  add('accessory', 'brown leather belt', 'brown', 2900, 'belt', ['office', 'casual', 'university', 'eid', 'mehndi', 'baraat', 'walima', 'party']);
+  add('accessory', 'gold cufflinks', 'gold', 3500, 'cufflinks', ['eid', 'mehndi', 'baraat', 'walima', 'party', 'office']);
+  return out;
+}
+
 export function buildDemoCatalog(): Product[] {
   counter = 0;
   rand = mulberry32(20261101); // same catalog on every run
-  return [...mains(), ...bottoms(), ...dupattas(), ...accessories()];
+  return [...mains(), ...bottoms(), ...dupattas(), ...accessories(), ...menswear()];
 }

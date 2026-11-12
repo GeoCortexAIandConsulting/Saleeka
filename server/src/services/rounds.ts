@@ -42,7 +42,8 @@ export async function createRound(
     const ls = await repos.looks.find({ id: { $in: r.lookIds } });
     ls.forEach((l) => seenMains.add(l.items.find((i) => i.slot === 'main')!.productId));
   }
-  const catalog = await repos.products.find();
+  // The stylist and its ranking rounds dress women only, so menswear stays out.
+  const catalog = (await repos.products.find()).filter((p) => p.gender !== 'male');
   // Find a request that can be met, then let the stylist (when a model is set up) style it as complete outfits.
   let request: ComposeRequest = { occasion, excludeMainIds: [...seenMains] };
   let composed = composeLooks(catalog, profile, request);
