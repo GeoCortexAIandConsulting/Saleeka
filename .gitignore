@@ -7,3 +7,8 @@ dist/
 # Raw brand catalogs fetched for the prototype (see server/src/catalog)
 .catalog-cache/
 *.tsbuildinfo
+# Google Cloud service-account keys (Vertex AI)
+server/secrets/
+*-sa-key.json
+# Local debugging scripts
+server/.scratch/

@@ -1,0 +1,3 @@
+# Keep line endings as LF in the repository (the last commit used LF; Windows editors had
+# switched some files to CRLF, which made whole files show as changed).
+* text=auto eol=lf
