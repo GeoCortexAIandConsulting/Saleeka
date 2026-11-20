@@ -12,7 +12,8 @@ import type { Gender, Product, Slot } from '@/lib/types';
 export type SlotState = 'required' | 'optional' | 'included' | 'hidden';
 
 interface Props {
-  pieces: Partial<Record<Slot, Product>>;
+  /** One piece per slot, or several (jewellery and accessories: up to three, shown side by side) */
+  pieces: Partial<Record<Slot, Product | Product[]>>;
   /** How each empty slot should look; missing slots show as optional */
   states?: Partial<Record<Slot, SlotState>>;
   active?: Slot | null;
@@ -25,15 +26,17 @@ interface Props {
   gender?: Gender;
 }
 
-const NAMES: Record<Slot, string> = { main: 'Outfit', bottom: 'Bottom', dupatta: 'Dupatta', footwear: 'Shoes', bag: 'Bag', jewelry: 'Jewellery', waistcoat: 'Waistcoat', accessory: 'Accessory', layer: 'Coat / jacket' };
-const SIDE: Record<Gender, Slot[]> = { female: ['bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry'], male: ['bottom', 'waistcoat', 'layer', 'footwear', 'accessory'] };
+const NAMES: Record<Slot, string> = { main: 'Outfit', bottom: 'Bottom', dupatta: 'Dupatta', footwear: 'Shoes', bag: 'Bag', jewelry: 'Jewellery', waistcoat: 'Waistcoat', accessory: 'Accessories', layer: 'Coat / jacket' };
+const SIDE: Record<Gender, Slot[]> = { female: ['bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry', 'accessory'], male: ['bottom', 'waistcoat', 'layer', 'footwear', 'accessory'] };
 /** Clothes are photographed on a model, so their photos fill the tile. */
 const WORN: Slot[] = ['bottom', 'dupatta', 'waistcoat', 'layer'];
 const rupees = (n: number) => `Rs. ${n.toLocaleString('en-PK')}`;
 
 export default function LookBoard({ pieces, states = {}, active, onSlot, className = '', label, compact = false, gender = 'female' }: Props) {
   const tile = (slot: Slot, shape: string) => {
-    const p = pieces[slot];
+    const got = pieces[slot];
+    const all = got ? (Array.isArray(got) ? got : [got]) : [];
+    const p = all[0];
     const state = states[slot] ?? 'optional';
     if (!p && (state === 'hidden' || state === 'included')) return null;
     const Tag = onSlot ? 'button' : 'div';
@@ -57,6 +60,36 @@ export default function LookBoard({ pieces, states = {}, active, onSlot, classNa
               {state === 'required' && <span className="block text-[11px] font-normal opacity-70">needed</span>}
             </span>
           )}
+        </Tag>
+      );
+    }
+
+    // Several pieces in one slot (earrings, a ring and a bracelet): side by side in the one tile.
+    if (all.length > 1) {
+      return (
+        <Tag
+          key={`${slot}-${all.map((x) => x.id).join('+')}`}
+          {...tap}
+          title={all.map((x) => `${x.title} · ${x.brandName} · ${rupees(x.price)}`).join('\n')}
+          aria-label={onSlot ? `${NAMES[slot]}: ${all.map((x) => x.title).join(', ')}` : undefined}
+          className={`piece-in relative flex gap-0.5 overflow-hidden rounded-xl bg-white/50 ${shape} ${ring}`}
+        >
+          {all.map((x) =>
+            x.images?.[0] ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={x.id}
+                src={x.images[0]}
+                alt={`${x.title} by ${x.brandName}`}
+                referrerPolicy="no-referrer"
+                className="h-full min-w-0 flex-1 object-contain p-0.5 mix-blend-multiply"
+                onError={(e) => (e.currentTarget.style.visibility = 'hidden')}
+              />
+            ) : (
+              <span key={x.id} className="h-full min-w-0 flex-1 rounded-lg" style={{ background: x.hex }} role="img" aria-label={x.title} />
+            ),
+          )}
+          {!compact && <span className="absolute bottom-0.5 right-1 rounded-full bg-white/90 px-1.5 text-[10px] font-semibold text-plum-dark">{all.length}</span>}
         </Tag>
       );
     }

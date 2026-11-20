@@ -4,8 +4,19 @@ export type Gender = 'female' | 'male';
  * waistcoat, layer, footwear, accessory. The layer is a coat, jacket or sweater worn over the outfit.
  */
 export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry' | 'waistcoat' | 'accessory' | 'layer';
-export const WOMEN_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry'];
+export const WOMEN_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry', 'accessory'];
 export const MEN_SLOTS: Slot[] = ['main', 'bottom', 'waistcoat', 'layer', 'footwear', 'accessory'];
+/** Slots that take up to three pieces (earrings, rings, a bracelet; a watch, a belt, cufflinks); the server checks the same. */
+export const MULTI_SLOTS: Partial<Record<Slot, number>> = { jewelry: 3, accessory: 3 };
+export const maxPieces = (slot: Slot) => MULTI_SLOTS[slot] ?? 1;
+/** A look in the Studio: the pieces chosen for each slot (one, or up to three in a multi slot). */
+export type StudioLook = Partial<Record<Slot, Product[]>>;
+/** A saved or published look's items, slot by slot. */
+export const lookFromItems = (items: Array<{ slot: Slot; product: Product }>): StudioLook => {
+  const look: StudioLook = {};
+  for (const i of items) if (i.product) (look[i.slot] ??= []).push(i.product);
+  return look;
+};
 export const slotsFor = (g: Gender | undefined | null): Slot[] => (g === 'male' ? MEN_SLOTS : WOMEN_SLOTS);
 
 export interface Product {
@@ -82,7 +93,7 @@ export interface Question {
 }
 
 export interface Me {
-  user: { id: string; email: string; name: string; photoVersion?: string | null; avatarVersion?: string | null };
+  user: { id: string; email: string; name: string; username: string | null; photoVersion?: string | null; avatarVersion?: string | null; emailVerified?: boolean };
   hasProfile: boolean;
   roundsDone: number;
   maxRounds: number;
@@ -91,6 +102,22 @@ export interface Me {
 }
 
 /* ------------------------------- dress-up game ------------------------------- */
+
+/** What a player may still preview (AI images cost money: free ones, earned ones, daily caps). */
+export interface PreviewStatus {
+  verified: boolean;
+  left: number;
+  free: number;
+  earned: number;
+  used: number;
+  /** Friends who joined from this player's share link and published a look */
+  friends: number;
+  friendsForCredit: number;
+  /** Friends still needed for the next free preview (0 once the most that can be earned is reached) */
+  friendsToGo: number;
+  blocked: null | 'off' | 'verify' | 'used-up' | 'player-today' | 'everyone-today';
+  message: string | null;
+}
 
 export interface Challenge {
   id: string;
@@ -109,8 +136,29 @@ export interface Challenge {
   featured?: boolean;
   /** A real outfit photo that fits the challenge */
   cover?: string | null;
+  /** A player's own brief ("What's on your mind today?"), never in the public list */
+  custom?: boolean;
+  /** Own brief: only these price tiers, these brands, and outfits up to this price */
+  tiers?: Array<'budget' | 'mid' | 'premium'>;
+  brandIds?: string[];
+  maxPrice?: number | null;
   asks: number;
   designs: number;
+}
+
+/** A brand whose outfits fit a player's own brief. */
+export interface BrandFit {
+  id: string;
+  name: string;
+  tier: 'budget' | 'mid' | 'premium';
+  count: number;
+}
+
+export interface BriefResult {
+  challenge: Challenge;
+  brands: BrandFit[];
+  /** Wishes let go because nothing fit them: colour, price, budget, season, brands */
+  relaxed: string[];
 }
 
 export interface Design {
@@ -166,10 +214,10 @@ export interface LookComment {
   canDelete: boolean;
 }
 
-/** A like, comment or reply on one of the player's looks or comments */
+/** A like, comment or reply on one of the player's looks or comments, or a friend who joined from their link */
 export interface AppNotification {
   id: string;
-  type: 'like' | 'comment' | 'reply';
+  type: 'like' | 'comment' | 'reply' | 'friend';
   by: string;
   text: string | null;
   at: string;

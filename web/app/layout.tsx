@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Cormorant_Garamond, Inter, Noto_Nastaliq_Urdu } from 'next/font/google';
 import './globals.css';
+import RefCapture from '@/components/RefCapture';
 import Toaster from '@/components/Toaster';
 
 const display = Cormorant_Garamond({ subsets: ['latin'], weight: ['400', '500', '600', '700'], style: ['normal', 'italic'], variable: '--font-display', display: 'swap' });
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         {children}
         <Toaster />
+        <RefCapture />
       </body>
     </html>
   );

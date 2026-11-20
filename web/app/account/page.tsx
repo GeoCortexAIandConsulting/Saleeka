@@ -7,7 +7,9 @@ import ProfilePhoto from '@/components/ProfilePhoto';
 import { QuestionInput, answersBody, describeAnswer, isAnswered, visibleQuestions, type Answers } from '@/components/QuestionInput';
 import { api, forgetDevice, signOut } from '@/lib/api';
 import { useRequireUser } from '@/lib/useMe';
-import type { Question } from '@/lib/types';
+import UsernameField, { type UsernameState } from '@/components/UsernameField';
+import { toast } from '@/components/Toaster';
+import type { PreviewStatus, Question } from '@/lib/types';
 
 const SECTIONS: { title: string; ids: string[] }[] = [
   { title: 'About you', ids: ['gender', 'ageRange', 'heightCm', 'weightKg'] },
@@ -41,6 +43,11 @@ export default function Account() {
   const [justSaved, setJustSaved] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [editingName, setEditingName] = useState(false);
+  const [username, setUsername] = useState('');
+  const [savedUsername, setSavedUsername] = useState('');
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [usernameState, setUsernameState] = useState<UsernameState>('empty');
+  const [previews, setPreviews] = useState<PreviewStatus | null>(null);
   const [photoVersion, setPhotoVersion] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,7 +55,12 @@ export default function Account() {
   useEffect(() => {
     if (!me) return;
     setName(me.user.name);
+    setUsername(me.user.username ?? '');
+    setSavedUsername(me.user.username ?? '');
     setPhotoVersion(me.user.photoVersion ?? null);
+    api<{ status?: PreviewStatus }>('/game/preview')
+      .then((r) => setPreviews(r.status ?? null))
+      .catch(() => {});
     if (!me.hasProfile) return;
     api<{ questions: Question[] }>('/quiz/questions').then((d) => setQuestions(d.questions));
     api<{ answers: Answers }>('/profile/answers').then((d) => setSaved(d.answers));
@@ -97,6 +109,18 @@ export default function Account() {
     }
   }
 
+  async function saveUsername() {
+    try {
+      const out = await api<{ user: { username: string } }>('/me', { method: 'PATCH', body: { username: username.trim().replace(/^@/, '') } });
+      setSavedUsername(out.user.username);
+      setUsername(out.user.username);
+      setEditingUsername(false);
+      toast('Username saved.', 'success');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  }
+
   async function wipe() {
     setBusy(true);
     await api('/me', { method: 'DELETE' });
@@ -142,6 +166,29 @@ export default function Account() {
                   </button>
                 )}
                 <div className="text-sm text-ink/65">{me.user.email}</div>
+                {editingUsername ? (
+                  <div className="mt-3 text-left">
+                    <UsernameField value={username} onChange={setUsername} onState={setUsernameState} current={me.user.username} />
+                    <div className="mt-2 flex gap-2">
+                      <button className="btn btn-primary !min-h-[40px] flex-1 !py-2 text-sm" disabled={usernameState !== 'ok'} onClick={saveUsername}>Save</button>
+                      <button className="btn btn-ghost !min-h-[40px] flex-1 !py-2 text-sm" onClick={() => { setUsername(savedUsername); setEditingUsername(false); }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  savedUsername && (
+                    <button className="mt-1 text-sm font-medium text-plum underline-offset-2 hover:underline" onClick={() => setEditingUsername(true)} title="Change your username">
+                      @{savedUsername} · Change
+                    </button>
+                  )
+                )}
+                {previews && (
+                  <p className="mt-3 rounded-xl bg-ivory px-3 py-2 text-xs text-ink/80">
+                    <strong>AI previews: {previews.left} left.</strong>{' '}
+                    {previews.friendsToGo > 0
+                      ? `${previews.friends} friend${previews.friends === 1 ? '' : 's'} joined from your share links. ${previews.friendsToGo} more for a free preview.`
+                      : 'You’ve earned all the free previews friends can bring. Thank you for sharing!'}
+                  </p>
+                )}
               </div>
               {summary && <p className="mt-4 border-t border-line pt-4 text-sm text-ink/80">{summary}</p>}
               <div className="mt-4 flex flex-wrap justify-center gap-2">

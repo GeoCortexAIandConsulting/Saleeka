@@ -15,19 +15,22 @@ const SLEEVE: Record<string, string> = { sleeveless: 'Sleeveless', short: 'Short
 interface Props {
   group: PieceGroup;
   start: number;
-  selected?: Product;
+  /** The pieces chosen for this slot (jewellery and accessories can have several) */
+  selected: Product[];
+  /** Picking another piece replaces the chosen one (a one-piece slot) */
+  swaps: boolean;
   onPick: (p: Product) => void;
-  onRemove: () => void;
+  onRemove: (p: Product) => void;
   onClose: () => void;
 }
 
-export default function QuickView({ group, start, selected, onPick, onRemove, onClose }: Props) {
+export default function QuickView({ group, start, selected, swaps, onPick, onRemove, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [i, setI] = useState(start);
   const [photo, setPhoto] = useState(0);
   const p = group.variants[i] ?? group.variants[0];
   const photos = p.images?.length ? p.images : [];
-  const on = selected?.id === p.id;
+  const on = selected.some((x) => x.id === p.id);
   const colours = group.variants.map((v, k) => ({ v, k })).filter(({ v }, n, all) => all.findIndex((x) => x.v.colors[0] === v.colors[0]) === n);
 
   // Open as a modal once shown. No close() on cleanup: React's development double-mount would
@@ -129,7 +132,7 @@ export default function QuickView({ group, start, selected, onPick, onRemove, on
                 type="button"
                 className="btn btn-ghost"
                 onClick={() => {
-                  onRemove();
+                  onRemove(p);
                   ref.current?.close();
                 }}
               >
@@ -144,7 +147,7 @@ export default function QuickView({ group, start, selected, onPick, onRemove, on
                   ref.current?.close();
                 }}
               >
-                {selected ? 'Swap into my look' : 'Add to my look'}
+                {swaps && selected.length ? 'Swap into my look' : 'Add to my look'}
               </button>
             )}
             <a href={`/api/go/${p.id}`} target="_blank" rel="noopener noreferrer" className="text-center text-sm text-plum underline-offset-2 hover:underline">

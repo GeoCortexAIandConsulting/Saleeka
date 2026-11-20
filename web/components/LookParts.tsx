@@ -1,10 +1,10 @@
 'use client';
 import type { SlotState } from '@/components/LookBoard';
-import { slotsFor, type FeedLook, type Product, type Slot } from '@/lib/types';
+import { lookFromItems, slotsFor, type FeedLook, type Slot } from '@/lib/types';
 
 /** Small pieces shared by the Runway feed and a look's own page. */
 
-export const piecesOf = (l: FeedLook) => Object.fromEntries(l.items.map((i) => [i.slot, i.product])) as Partial<Record<Slot, Product>>;
+export const piecesOf = (l: FeedLook) => lookFromItems(l.items);
 export const statesOf = (l: FeedLook) => {
   const has = new Set(l.items.map((i) => i.slot));
   return Object.fromEntries(slotsFor(l.challenge?.gender).map((s) => [s, has.has(s) ? 'optional' : 'hidden'])) as Partial<Record<Slot, SlotState>>;

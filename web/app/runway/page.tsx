@@ -1,12 +1,13 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import GuestWall from '@/components/GuestWall';
 import Header from '@/components/Header';
 import LookTile from '@/components/LookTile';
 import { toast } from '@/components/Toaster';
 import WeeklyBanner from '@/components/WeeklyBanner';
 import { api } from '@/lib/api';
-import { useRequireUser } from '@/lib/useMe';
+import { useMaybeUser } from '@/lib/useMe';
 import { useLiveCounts, withCounts } from '@/lib/useLiveCounts';
 import type { FeedLook, Gender } from '@/lib/types';
 
@@ -28,7 +29,8 @@ const OCCASIONS: Array<[string, string]> = [
 ];
 
 export default function Runway() {
-  const me = useRequireUser();
+  // Visitors without an account see the first few looks, then an invitation to sign in.
+  const { me, ready } = useMaybeUser();
   const [looks, setLooks] = useState<FeedLook[] | null>(null);
   const [next, setNext] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -69,7 +71,7 @@ export default function Runway() {
   };
 
   useEffect(() => {
-    if (!me) return;
+    if (!ready) return;
     let live = true; // a quick switch between tabs must not show the older answer
     setLooks(null);
     setError('');
@@ -83,7 +85,7 @@ export default function Runway() {
     return () => {
       live = false;
     };
-  }, [me, q, attempt]);
+  }, [ready, me, q, attempt]);
 
   async function more() {
     if (!next) return;
@@ -102,11 +104,11 @@ export default function Runway() {
   // Likes and comments update live while the Runway is open.
   useLiveCounts(looks?.map((l) => l.id) ?? [], (counts) => setLooks((ls) => ls?.map((l) => withCounts(l, counts)) ?? ls));
 
-  if (!me) return <Header />;
+  if (!ready) return <Header signedIn={false} />;
 
   return (
     <>
-      <Header />
+      <Header signedIn={Boolean(me)} />
       <main className="page py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -117,7 +119,7 @@ export default function Runway() {
           <Link href="/studio" className="btn btn-primary">Style a look</Link>
         </div>
 
-        <WeeklyBanner />
+        {me && <WeeklyBanner />}
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-full border border-line bg-white p-1 text-sm" role="tablist" aria-label="Order of looks">
@@ -165,7 +167,7 @@ export default function Runway() {
         </div>
 
         {/* The ranking rounds teach the women's stylist, so they are offered to women. */}
-        {me.gender !== 'male' && me.roundsDone < me.maxRounds && !rankHidden && (
+        {me && me.gender !== 'male' && me.roundsDone < me.maxRounds && !rankHidden && (
           <div className="mt-4 flex items-center gap-3 rounded-2xl bg-plum-soft py-1.5 pl-4 pr-1.5 text-sm text-plum-dark">
             <p className="flex-1">
               Help us learn your taste: <Link href="/rounds" className="font-semibold underline">rank a few looks</Link>.
@@ -207,6 +209,7 @@ export default function Runway() {
                 <LookTile key={l.id} look={l} onChange={update} />
               ))}
             </div>
+            {!me && <GuestWall next="/runway" />}
             {next && (
               <div className="mt-6 text-center">
                 <button className="btn btn-ghost" disabled={loadingMore} onClick={more}>{loadingMore ? 'Loading…' : 'Show more looks'}</button>

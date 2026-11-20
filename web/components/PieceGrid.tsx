@@ -43,18 +43,22 @@ const isNew = (p: Product) => {
 interface Props {
   challengeId: string;
   slot: Slot;
-  /** The piece chosen for this slot, if any */
-  selected?: Product;
+  /** The pieces chosen for this slot (jewellery and accessories can have up to three) */
+  selected: Product[];
+  /** Picking another piece replaces the chosen one (every slot but jewellery and accessories) */
+  swaps: boolean;
   onPick: (p: Product) => void;
-  onRemove: () => void;
+  onRemove: (p: Product) => void;
 }
 
-function Card({ group, selected, onPick, onRemove, main }: { group: PieceGroup; selected?: Product; onPick: (p: Product) => void; onRemove: () => void; main: boolean }) {
+type CardProps = { group: PieceGroup; selected: Product[]; swaps: boolean; onPick: (p: Product) => void; onRemove: (p: Product) => void; main: boolean };
+
+function Card({ group, selected, swaps, onPick, onRemove, main }: CardProps) {
   const [details, setDetails] = useState(false);
-  const chosenHere = group.variants.findIndex((v) => v.id === selected?.id);
+  const chosenHere = group.variants.findIndex((v) => selected.some((x) => x.id === v.id));
   const [i, setI] = useState(Math.max(0, chosenHere));
   const p = group.variants[Math.min(i, group.variants.length - 1)];
-  const on = selected?.id === p.id;
+  const on = selected.some((x) => x.id === p.id);
   // One dot per colour: shades the palette names alike (two greys) are the same choice to a shopper.
   const dots = group.variants.map((v, k) => ({ v, k })).filter(({ v }, n, all) => all.findIndex((x) => x.v.colors[0] === v.colors[0]) === n);
 
@@ -118,6 +122,7 @@ function Card({ group, selected, onPick, onRemove, main }: { group: PieceGroup; 
           group={group}
           start={Math.min(i, group.variants.length - 1)}
           selected={selected}
+          swaps={swaps}
           onPick={onPick}
           onRemove={onRemove}
           onClose={() => setDetails(false)}
@@ -128,7 +133,7 @@ function Card({ group, selected, onPick, onRemove, main }: { group: PieceGroup; 
           <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-plum px-2 py-0.5 text-[11px] font-semibold text-white">✓ Chosen</span>
           <button
             type="button"
-            onClick={onRemove}
+            onClick={() => onRemove(p)}
             aria-label={`Remove ${p.title} from your look`}
             className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-lg leading-none text-ink shadow hover:bg-white hover:text-red-700"
           >
@@ -140,7 +145,7 @@ function Card({ group, selected, onPick, onRemove, main }: { group: PieceGroup; 
   );
 }
 
-export default function PieceGrid({ challengeId, slot, selected, onPick, onRemove }: Props) {
+export default function PieceGrid({ challengeId, slot, selected, swaps, onPick, onRemove }: Props) {
   const ranges = ['main', 'bottom', 'dupatta', 'waistcoat', 'layer'].includes(slot) ? CLOTHES : SMALL;
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
@@ -291,7 +296,7 @@ export default function PieceGrid({ challengeId, slot, selected, onPick, onRemov
         <>
           <ul className={`mt-3 grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 ${loading ? 'opacity-60' : ''}`}>
             {groups.map((g) => (
-              <Card key={g.key} group={g} selected={selected} onPick={onPick} onRemove={onRemove} main={slot === 'main'} />
+              <Card key={g.key} group={g} selected={selected} swaps={swaps} onPick={onPick} onRemove={onRemove} main={slot === 'main'} />
             ))}
           </ul>
           {data && data.page < data.pages && (

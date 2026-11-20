@@ -1,5 +1,5 @@
 import { toast } from '@/components/Toaster';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import type { FeedLook } from '@/lib/types';
 
 /**
@@ -21,6 +21,12 @@ export async function castVote(look: FeedLook, choice: 'up' | 'down', onChange: 
     await api(`/game/designs/${look.id}/vote`, { body: { up: next === null ? null : next === 'up' } });
   } catch (e) {
     onChange(look);
+    // A visitor without an account: liking is for players, so invite them in and bring them back here.
+    if (e instanceof ApiError && e.status === 401) {
+      toast('Sign in or create a free account to like looks.', 'error');
+      window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+      return;
+    }
     toast((e as Error).message || 'Your like was not saved. Please try again.', 'error');
   }
 }

@@ -1,13 +1,23 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import { shareUrl } from '@/lib/ref';
+import type { Me } from '@/lib/types';
 
 /**
  * Share a look: straight to WhatsApp (the way most people in Pakistan share), or through the phone's
- * own share sheet, or by copying the link. The link opens the look for anyone, even without an account.
+ * own share sheet, or by copying the link. The link opens the look for anyone, even without an account,
+ * and carries the sharer's invite: friends who join from it and publish a look earn the sharer previews.
  */
 export default function ShareButtons({ lookId, text, compact = false }: { lookId: string; text: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false);
-  const url = () => `${window.location.origin}/runway/${lookId}`;
+  const [myId, setMyId] = useState<string | null>(null);
+  useEffect(() => {
+    api<Me>('/me')
+      .then((m) => setMyId(m.user.id))
+      .catch(() => {}); // a visitor shares the plain link
+  }, []);
+  const url = () => shareUrl(lookId, myId);
 
   function whatsapp() {
     window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url()}`)}`, '_blank', 'noopener,noreferrer');

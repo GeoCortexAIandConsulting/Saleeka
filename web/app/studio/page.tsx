@@ -5,13 +5,15 @@ import Header from '@/components/Header';
 import LookBoard, { type SlotState } from '@/components/LookBoard';
 import PieceGrid from '@/components/PieceGrid';
 import ShareButtons from '@/components/ShareButtons';
+import StudioBrief from '@/components/StudioBrief';
 import StudioWelcome from '@/components/StudioWelcome';
 import { toast } from '@/components/Toaster';
 import { api, rupees } from '@/lib/api';
 import { PALETTE_HEX } from '@/lib/palette';
 import { SLOT_NAME, slotStates } from '@/lib/lookRules';
-import { useRequireUser } from '@/lib/useMe';
-import { slotsFor, type Challenge, type Design, type FeedLook, type Gender, type Product, type Slot } from '@/lib/types';
+import { useMaybeUser } from '@/lib/useMe';
+import { useRouter } from 'next/navigation';
+import { lookFromItems, maxPieces, slotsFor, type PreviewStatus, type Challenge, type Design, type FeedLook, type Gender, type Product, type Slot, type StudioLook } from '@/lib/types';
 
 type Tab = 'design' | 'mine';
 type Step = 'challenge' | 'loading' | 'build' | 'preview' | 'done';
@@ -72,11 +74,26 @@ function PreviewWait() {
 }
 
 /** A look in progress, kept on this device so a refresh or a closed tab does not lose it. */
-type SavedLook = { challengeId: string; look: Partial<Record<Slot, Product>>; active: Slot; at: number };
+type SavedLook = { challengeId: string; look: StudioLook; active: Slot; at: number };
+/** Looks saved before a slot could hold several pieces kept one piece per slot. */
+const asStudioLook = (look: Partial<Record<Slot, Product | Product[]>>): StudioLook =>
+  Object.fromEntries(Object.entries(look).filter(([, v]) => v).map(([k, v]) => [k, Array.isArray(v) ? v : [v]])) as StudioLook;
+/** How many pieces a look has in a slot. */
+const countIn = (look: StudioLook, s: Slot) => look[s]?.length ?? 0;
 const WEEK = 7 * 24 * 60 * 60 * 1000;
+/** A guest's look in progress; it moves to their account when they sign up. */
+const GUEST_KEY = 'saleeqa:studio:guest';
+/** Where sign-up sends a guest back to: the Studio, straight into their look. */
+const BACK_TO_LOOK = `?next=${encodeURIComponent('/studio?continue=1')}`;
 
 export default function Studio() {
-  const me = useRequireUser();
+  // Guests can build a look; an account is asked for only to preview or publish it.
+  const { me, ready } = useMaybeUser();
+  const router = useRouter();
+  // The Studio needs an account (sign up first, then confirm the email once).
+  useEffect(() => {
+    if (ready && !me) router.replace(`/login?next=${encodeURIComponent('/studio')}`);
+  }, [ready, me, router]);
   const [tab, setTab] = useState<Tab>('design');
   const [error, setError] = useState('');
 
@@ -84,7 +101,7 @@ export default function Studio() {
   const [step, setStep] = useState<Step>('challenge');
   const [challenges, setChallenges] = useState<Challenge[] | null>(null);
   const [challenge, setChallenge] = useState<Challenge | null>(null);
-  const [look, setLook] = useState<Partial<Record<Slot, Product>>>({});
+  const [look, setLook] = useState<StudioLook>({});
   const [active, setActive] = useState<Slot>('main');
   const [busy, setBusy] = useState(false);
   /** Women's or men's challenges: starts on the taste quiz's answer, and anyone can switch. */
@@ -108,8 +125,15 @@ export default function Studio() {
       .catch((e) => setError(e.message));
 
   useEffect(() => {
-    if (me) loadChallenges();
-  }, [me]);
+    if (ready) loadChallenges();
+  }, [ready]);
+
+  /** A challenge by id: from the list, or (a player's own brief, never listed) from the server. */
+  const findChallenge = async (id: string): Promise<Challenge | null> =>
+    challenges?.find((x) => x.id === id) ??
+    (await api<{ challenge: Challenge }>(`/game/challenges/${encodeURIComponent(id)}`)
+      .then((r) => r.challenge)
+      .catch(() => null));
 
   /** Picking a challenge opens the builder straight away, with fitting pieces from every brand. */
   function chooseChallenge(c: Challenge) {
@@ -121,7 +145,7 @@ export default function Studio() {
   }
 
   /* --------------------------- look in progress --------------------------- */
-  const saveKey = me ? `saleeqa:studio:${me.user.id}` : null;
+  const saveKey = !ready ? null : me ? `saleeqa:studio:${me.user.id}` : GUEST_KEY;
   const [resume, setResume] = useState<{ challenge: Challenge; saved: SavedLook } | null>(null);
 
   const forgetSaved = () => {
@@ -133,16 +157,45 @@ export default function Studio() {
     setResume(null);
   };
 
-  // Offer to continue a look left unfinished on this device (within a week).
+  // Offer to continue a look left unfinished on this device (within a week). A look built as a guest
+  // becomes the new account's look; coming back from sign-up (?continue=1) opens it straight away.
   useEffect(() => {
     if (!saveKey || !challenges) return;
-    try {
-      const saved = JSON.parse(localStorage.getItem(saveKey) ?? 'null') as SavedLook | null;
-      const c = saved && challenges.find((x) => x.id === saved.challengeId);
-      if (saved && c && Date.now() - saved.at < WEEK && Object.values(saved.look).some(Boolean)) setResume({ challenge: c, saved });
-    } catch {
-      /* nothing saved, or storage blocked */
+    const read = (key: string) => {
+      try {
+        return JSON.parse(localStorage.getItem(key) ?? 'null') as SavedLook | null;
+      } catch {
+        return null; /* nothing saved, or storage blocked */
+      }
+    };
+    let saved = read(saveKey);
+    if (me) {
+      const guest = read(GUEST_KEY);
+      if (guest && (!saved || guest.at > saved.at)) {
+        saved = guest;
+        try {
+          localStorage.setItem(saveKey, JSON.stringify(guest));
+        } catch { /* kept in memory only */ }
+      }
+      try {
+        localStorage.removeItem(GUEST_KEY);
+      } catch { /* storage blocked */ }
     }
+    const params = new URLSearchParams(window.location.search);
+    const back = params.get('continue') === '1';
+    if (back) window.history.replaceState(null, '', '/studio');
+    if (!saved || Date.now() - saved.at >= WEEK || !Object.values(saved.look).some(Boolean)) return;
+    const kept = saved;
+    findChallenge(kept.challengeId).then((c) => {
+      if (!c) return;
+      if (!back) return setResume((r) => r ?? { challenge: c, saved: kept });
+      setSide(c.gender);
+      setChallenge(c);
+      setLook(asStudioLook(kept.look));
+      setActive(kept.active);
+      setStep('build');
+      toast('Welcome! Your look is right here: preview it or publish it.', 'success');
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveKey, challenges === null]);
 
@@ -159,7 +212,7 @@ export default function Studio() {
   function continueSaved() {
     if (!resume) return;
     setChallenge(resume.challenge);
-    setLook(resume.saved.look);
+    setLook(asStudioLook(resume.saved.look));
     setActive(resume.saved.active);
     setStep('build');
     setResume(null);
@@ -174,11 +227,12 @@ export default function Studio() {
     if (open) {
       remixed.current = true;
       window.history.replaceState(null, '', '/studio');
-      const c = challenges.find((x) => x.id === open);
-      if (!c) return toast('That challenge is not open any more.', 'error');
-      setSide(c.gender);
-      chooseChallenge(c);
-      setResume(null);
+      findChallenge(open).then((c) => {
+        if (!c) return toast('That challenge is not open any more.', 'error');
+        setSide(c.gender);
+        chooseChallenge(c);
+        setResume(null);
+      });
       return;
     }
     const id = params.get('remix');
@@ -186,12 +240,12 @@ export default function Studio() {
     remixed.current = true;
     window.history.replaceState(null, '', '/studio');
     api<{ look: FeedLook }>(`/feed/${id}`)
-      .then(({ look: l }) => {
-        const c = challenges.find((x) => x.id === l.challenge?.id);
+      .then(async ({ look: l }) => {
+        const c = l.challenge?.id ? await findChallenge(l.challenge.id) : null;
         if (!c) return toast('That challenge is not open any more.', 'error');
         setSide(c.gender);
         setChallenge(c);
-        setLook(Object.fromEntries(l.items.map((i) => [i.slot, i.product])) as Partial<Record<Slot, Product>>);
+        setLook(lookFromItems(l.items));
         setActive('main');
         setDraft(null);
         setStep('build');
@@ -208,23 +262,35 @@ export default function Studio() {
     if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const states = slotStates(look.main, challenge);
-  const total = SLOTS.reduce((n, s) => n + (states[s] === 'included' ? 0 : look[s]?.price ?? 0), 0);
-  const missing = SLOTS.filter((s) => states[s] === 'required' && !look[s]);
+  const states = slotStates(look.main?.[0], challenge);
+  const total = SLOTS.reduce((n, s) => n + (states[s] === 'included' ? 0 : (look[s] ?? []).reduce((m, p) => m + p.price, 0)), 0);
+  const missing = SLOTS.filter((s) => states[s] === 'required' && !countIn(look, s));
 
+  /**
+   * Choosing a piece: in most slots it replaces the one there; jewellery and accessories collect up
+   * to three. Choosing a chosen piece again takes it out.
+   */
   function put(slot: Slot, p: Product) {
-    const removing = look[slot]?.id === p.id;
-    const next: Partial<Record<Slot, Product>> = { ...look, [slot]: removing ? undefined : p };
+    const have = look[slot] ?? [];
+    const max = maxPieces(slot);
+    const removing = have.some((x) => x.id === p.id);
+    if (!removing && max > 1 && have.length >= max) {
+      toast(`Up to ${max} ${SLOT_NAME[slot].toLowerCase()}: remove one to add another.`, 'error');
+      return;
+    }
+    const now = removing ? have.filter((x) => x.id !== p.id) : max > 1 ? [...have, p] : [p];
+    const next: StudioLook = { ...look, [slot]: now.length ? now : undefined };
     // A new outfit may bring its own bottom or dupatta.
-    const s = slotStates(next.main, challenge);
+    const s = slotStates(next.main?.[0], challenge);
     if (s.bottom === 'included') delete next.bottom;
     if (s.dupatta === 'included') delete next.dupatta;
     setLook(next);
     // After choosing a piece, move on to the next one the look still needs (then the optional ones).
-    if (!removing) {
+    // A slot that holds several stays open until it is full.
+    if (!removing && now.length >= max) {
       const after = SLOTS.slice(SLOTS.indexOf(slot) + 1).concat(SLOTS.slice(0, SLOTS.indexOf(slot)));
-      const needed = after.find((x) => s[x] === 'required' && !next[x]);
-      const optional = SLOTS.slice(SLOTS.indexOf(slot) + 1).find((x) => s[x] === 'optional' && !next[x]);
+      const needed = after.find((x) => s[x] === 'required' && !countIn(next, x));
+      const optional = SLOTS.slice(SLOTS.indexOf(slot) + 1).find((x) => s[x] === 'optional' && !countIn(next, x));
       const go = needed ?? optional;
       if (go) {
         setActive(go);
@@ -233,11 +299,15 @@ export default function Studio() {
     }
   }
 
-  function removePiece(slot: Slot) {
-    setLook((l) => ({ ...l, [slot]: undefined }));
+  /** Takes one piece out of a slot, or the whole slot. */
+  function removePiece(slot: Slot, p?: Product) {
+    setLook((l) => {
+      const left = p ? (l[slot] ?? []).filter((x) => x.id !== p.id) : [];
+      return { ...l, [slot]: left.length ? left : undefined };
+    });
   }
 
-  const itemsBody = () => SLOTS.filter((s) => look[s] && states[s] !== 'included').map((s) => ({ slot: s, productId: look[s]!.id }));
+  const itemsBody = () => SLOTS.filter((s) => states[s] !== 'included').flatMap((s) => (look[s] ?? []).map((p) => ({ slot: s, productId: p.id })));
 
   /* ------------------------------ AI preview ------------------------------ */
   /** Whether the server has the AI preview switched on (a Google Cloud project is set). */
@@ -256,13 +326,48 @@ export default function Studio() {
     } catch { /* private window: medium */ }
   }, []);
 
+  /** How many previews the player has left, and what (if anything) stops a new one: kept fresh after each. */
+  const [pstatus, setPstatus] = useState<PreviewStatus | null>(null);
+  const loadPreview = () =>
+    api<{ enabled: boolean; status?: PreviewStatus }>('/game/preview')
+      .then((r) => {
+        setPreviewOn(r.enabled);
+        setPstatus(r.status ?? null);
+      })
+      .catch(() => setPreviewOn(false));
   useEffect(() => {
-    if (me) api<{ enabled: boolean }>('/game/preview').then((r) => setPreviewOn(r.enabled)).catch(() => setPreviewOn(false));
-  }, [me]);
+    if (ready) loadPreview();
+  }, [ready]);
+  /** Guests see the button (it leads to sign-up); players only while they have a preview to use. */
+  const canPreview = previewOn && (!me || !pstatus?.blocked);
+  const [resent, setResent] = useState(false);
+  async function resendVerification() {
+    try {
+      await api('/auth/verify/resend', { method: 'POST' });
+      setResent(true);
+      toast('Sent! Check your inbox (and spam) for the link.', 'success');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  }
+
+  /**
+   * A guest's look is finished: an account is needed to preview or publish it. The look is already
+   * kept on this device (saved as it is built), and sign-up brings them straight back to it.
+   */
+  function join() {
+    if (challenge) {
+      try {
+        localStorage.setItem(GUEST_KEY, JSON.stringify({ challengeId: challenge.id, look, active, at: Date.now() } satisfies SavedLook));
+      } catch { /* storage blocked: they will pick the pieces again */ }
+    }
+    router.push(`/signup${BACK_TO_LOOK}`);
+  }
 
   /** Saves the look as a private draft, then has the AI dress the model in it (about half a minute). */
   async function preview() {
     if (!challenge || missing.length || previewing) return;
+    if (!me) return join();
     setError('');
     setStep('preview');
     setPreviewing(true);
@@ -274,6 +379,7 @@ export default function Studio() {
       setError((e as Error).message);
     }
     setPreviewing(false);
+    loadPreview();
   }
 
   /** The same look on the next of our models (a new image). */
@@ -287,6 +393,7 @@ export default function Studio() {
       setError((e as Error).message);
     }
     setPreviewing(false);
+    loadPreview();
   }
 
   /** Picks the body size; on the preview step, the same look is shown again at that size. */
@@ -305,6 +412,7 @@ export default function Studio() {
       setError((e as Error).message);
     }
     setPreviewing(false);
+    loadPreview();
   }
 
   /** Back to the builder; the pieces stay as they were. A changed look gets a new preview. */
@@ -315,8 +423,19 @@ export default function Studio() {
   }
 
   /** Publishes the previewed draft, or (without a preview) the look straight away, to the Runway. */
-  async function publish() {
+  /** Publishing puts the look on the Runway for everyone, so a look without a preview asks first. */
+  const [confirmPublish, setConfirmPublish] = useState(false);
+  function askPublish() {
     if (!challenge || missing.length) return;
+    if (!me) return join();
+    if (draft?.previewUrl) return publish();
+    setConfirmPublish(true);
+  }
+
+  async function publish() {
+    setConfirmPublish(false);
+    if (!challenge || missing.length) return;
+    if (!me) return join();
     setError('');
     setBusy(true);
     try {
@@ -351,7 +470,7 @@ export default function Studio() {
     if (tab === 'mine') api<{ designs: Design[] }>('/game/designs/mine').then((r) => setMine(r.designs)).catch((e) => setError(e.message));
   }, [tab, me]);
 
-  const lookOf = (d: Design) => Object.fromEntries(d.items.map((i) => [i.slot, i.product])) as Partial<Record<Slot, Product>>;
+  const lookOf = (d: Design) => lookFromItems(d.items);
   const doneStates = (d: Design): Partial<Record<Slot, SlotState>> => {
     const has = new Set(d.items.map((i) => i.slot));
     return Object.fromEntries(slotsFor(d.challenge?.gender).map((s) => [s, has.has(s) ? 'optional' : 'hidden'])) as Partial<Record<Slot, SlotState>>;
@@ -360,18 +479,18 @@ export default function Studio() {
   /** The phone bar shows while building or previewing a look. */
   const bar = tab === 'design' && (step === 'build' || step === 'preview');
 
-  if (!me) return <Header />;
+  if (!ready || !me) return <Header signedIn={Boolean(me)} />;
 
   return (
     <>
-      <Header />
+      <Header signedIn={Boolean(me)} />
       <main className={`page py-6 sm:py-8 ${bar ? 'pb-28 md:pb-8' : ''}`}>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="eyebrow">Studio</p>
             <h1 className="mt-1 text-3xl font-semibold sm:text-4xl">Style the look</h1>
             <p className="mt-1 max-w-xl text-sm text-ink/70">
-              Pick a challenge, put a complete look together from Pakistan’s favourite brands.
+              Pick a challenge or describe your own, put a complete look together from Pakistan’s favourite brands.
               Publish it to the Runway, where everyone can like it and comment.
             </p>
           </div>
@@ -419,12 +538,16 @@ export default function Studio() {
                       </p>
                       <div className="mt-2 flex gap-2">
                         <button type="button" className="btn btn-primary !min-h-[36px] !px-4 !py-1.5 text-sm" onClick={continueSaved}>Continue</button>
-                        <button type="button" className="btn btn-ghost !min-h-[36px] !px-4 !py-1.5 text-sm" onClick={forgetSaved}>Start fresh</button>
+                        {me && <button type="button" className="btn btn-ghost !min-h-[36px] !px-4 !py-1.5 text-sm" onClick={forgetSaved}>Start fresh</button>}
                       </div>
                     </div>
                   )}
+                  <div className="mt-3">
+                    <StudioBrief gender={gender} onGender={setSide} onStart={chooseChallenge} tags={(c) => <ChallengeTags c={c} />} />
+                  </div>
+                  <h3 className="mt-5 text-sm font-semibold">Or pick a challenge</h3>
                   {challenges && occasionsHere.length > 1 && (
-                    <div className="no-scrollbar -mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Occasion">
+                    <div className="no-scrollbar -mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Filter challenges by occasion">
                       {[['all', 'All'] as [string, string], ...occasionsHere, ...(ofGender.some((c) => c.fromShoppers) ? [['asked', 'Asked by shoppers'] as [string, string]] : [])].map(([id, label]) => (
                         <button
                           key={id}
@@ -486,6 +609,7 @@ export default function Studio() {
               {step !== 'challenge' && challenge && (
                 <div className="mb-4 border-b border-line pb-4">
                   <button onClick={resetDesign} className="text-xs text-plum underline-offset-2 hover:underline">← All challenges</button>
+                  {challenge.custom && <p className="eyebrow mt-2">Your own brief</p>}
                   <h2 className="mt-1 font-semibold">{challenge.title}</h2>
                   <ChallengeTags c={challenge} />
                 </div>
@@ -498,7 +622,8 @@ export default function Studio() {
                   <h2 className="font-semibold">2 · Build your look</h2>
                   <ul className="mt-3 space-y-1.5">
                     {SLOTS.map((s) => {
-                      const p = look[s];
+                      const p = look[s]?.[0];
+                      const n = countIn(look, s);
                       const st = states[s];
                       return (
                         <li key={s} className="relative">
@@ -516,7 +641,17 @@ export default function Studio() {
                             <span className="min-w-0 flex-1">
                               <span className="block font-medium">{SLOT_NAME[s]}</span>
                               <span className="block truncate text-xs text-ink/65">
-                                {st === 'included' ? 'Comes with your outfit' : p ? `${p.brandName} · ${rupees(p.price)}` : st === 'required' ? 'Needed' : 'Optional'}
+                                {st === 'included'
+                                  ? 'Comes with your outfit'
+                                  : n > 1
+                                    ? `${n} pieces · ${rupees((look[s] ?? []).reduce((m, x) => m + x.price, 0))}`
+                                    : p
+                                      ? `${p.brandName} · ${rupees(p.price)}`
+                                      : st === 'required'
+                                        ? 'Needed'
+                                        : maxPieces(s) > 1
+                                          ? `Optional · up to ${maxPieces(s)}`
+                                          : 'Optional'}
                               </span>
                             </span>
                             {st === 'required' && !p && <span className="h-2 w-2 rounded-full bg-plum" aria-label="needed" />}
@@ -525,7 +660,7 @@ export default function Studio() {
                             <button
                               type="button"
                               onClick={() => removePiece(s)}
-                              aria-label={`Remove ${SLOT_NAME[s].toLowerCase()}`}
+                              aria-label={n > 1 ? `Remove all ${SLOT_NAME[s].toLowerCase()}` : `Remove ${SLOT_NAME[s].toLowerCase()}`}
                               title="Remove"
                               className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-lg leading-none text-ink/65 hover:bg-white hover:text-red-700"
                             >
@@ -541,23 +676,55 @@ export default function Studio() {
                     <span>Look total</span>
                     <span className="font-semibold">{rupees(total)}</span>
                   </div>
+                  {!me && missing.length === 0 && (
+                    <p className="mt-4 rounded-xl bg-ivory px-3 py-2 text-xs text-ink/75">
+                      Your look is ready! A free account lets you see it on a model and publish it. Your pieces stay chosen.{' '}
+                      <a className="font-semibold text-plum underline-offset-2 hover:underline" href={`/login${BACK_TO_LOOK}`}>I have an account</a>
+                    </p>
+                  )}
                   {missing.length > 0 ? (
                     <button className="btn btn-primary mt-5 w-full" disabled>
                       Add {missing.map((s) => SLOT_NAME[s].toLowerCase()).join(', ')}
                     </button>
-                  ) : previewOn ? (
+                  ) : canPreview ? (
                     <>
                       <SizePicker size={size} onPick={pickSize} disabled={previewing} />
                       <button className="btn btn-primary mt-4 w-full" onClick={preview}>✨ Preview on model</button>
-                      <p className="mt-2 text-center text-xs text-ink/65">See your look on a model before it goes on the Runway.</p>
-                      <button className="mt-2 w-full text-center text-xs text-plum underline-offset-2 hover:underline disabled:opacity-50" disabled={busy} onClick={publish}>
+                      <p className="mt-2 text-center text-xs text-ink/65">
+                        {pstatus
+                          ? `${pstatus.left} free preview${pstatus.left === 1 ? '' : 's'} left · get another for every ${pstatus.friendsForCredit} friends who join from your share link`
+                          : 'See your look on a model before it goes on the Runway.'}
+                      </p>
+                      <button className="mt-2 w-full text-center text-xs text-plum underline-offset-2 hover:underline disabled:opacity-50" disabled={busy} onClick={askPublish}>
                         {busy ? 'Publishing…' : 'or publish without a preview'}
                       </button>
                     </>
                   ) : (
-                    <button className="btn btn-primary mt-5 w-full" disabled={busy} onClick={publish}>
-                      {busy ? 'Publishing…' : 'Publish my look'}
-                    </button>
+                    <>
+                      {/* The preview stays in sight while it is locked, with the reason right under it. */}
+                      {me && previewOn && pstatus?.blocked && (
+                        <button className="btn btn-primary mt-4 w-full" disabled aria-describedby="preview-locked">🔒 Preview on model</button>
+                      )}
+                      {me && previewOn && pstatus?.blocked && (
+                        <div id="preview-locked" className="mt-2 rounded-xl bg-ivory px-3 py-2.5 text-xs text-ink/80" role="status">
+                          {pstatus.blocked === 'verify' ? (
+                            <>
+                              <p>
+                                <strong>Confirm your email to unlock {pstatus.left} free AI previews.</strong> We sent a link to {me.user.email}.
+                              </p>
+                              <button type="button" className="mt-1.5 font-semibold text-plum underline-offset-2 hover:underline disabled:opacity-60" disabled={resent} onClick={resendVerification}>
+                                {resent ? 'Link sent' : 'Send the link again'}
+                              </button>
+                            </>
+                          ) : (
+                            <p>{pstatus.message}</p>
+                          )}
+                        </div>
+                      )}
+                      <button className={`btn mt-3 w-full ${me && previewOn && pstatus?.blocked ? 'btn-ghost' : 'btn-primary'}`} disabled={busy} onClick={askPublish}>
+                        {busy ? 'Publishing…' : 'Publish my look'}
+                      </button>
+                    </>
                   )}
                 </>
               )}
@@ -581,7 +748,7 @@ export default function Studio() {
                     {!previewing && !draft?.previewUrl && (
                       <button className="btn btn-ghost w-full" onClick={preview}>Try the preview again</button>
                     )}
-                    <button className="btn btn-primary w-full" disabled={busy || previewing} onClick={publish}>
+                    <button className="btn btn-primary w-full" disabled={busy || previewing} onClick={askPublish}>
                       {busy ? 'Publishing…' : 'Publish to the Runway'}
                     </button>
                     {draft?.previewUrl && (
@@ -603,6 +770,9 @@ export default function Studio() {
                       <div className="flex justify-center">
                         <ShareButtons lookId={published.id} compact text={`I styled this ${challenge?.title ?? 'look'} on Saleeqa. What do you think?`} />
                       </div>
+                      <p className="mt-2 text-xs text-ink/75">
+                        Every {pstatus?.friendsForCredit ?? 3} friends who join from your link and publish a look earn you a free AI preview.
+                      </p>
                     </div>
                   )}
                   <div className="mt-4 flex flex-col gap-2">
@@ -662,13 +832,21 @@ export default function Studio() {
                       <div className="no-scrollbar sticky top-[65px] z-10 -mx-4 mb-3 flex gap-2 overflow-x-auto bg-ivory/95 px-4 py-2 backdrop-blur md:hidden">
                         {SLOTS.filter((s) => states[s] !== 'included').map((s) => (
                           <button key={s} onClick={() => setActive(s)} className={`chip shrink-0 !min-h-[40px] !py-1.5 ${active === s ? 'chip-on' : ''}`}>
-                            {look[s] ? '✓ ' : states[s] === 'required' ? '• ' : ''}
+                            {countIn(look, s) ? '✓ ' : states[s] === 'required' ? '• ' : ''}
                             {SLOT_NAME[s]}
+                            {countIn(look, s) > 1 ? ` (${countIn(look, s)})` : ''}
                           </button>
                         ))}
                       </div>
                       <div ref={gridRef} className="scroll-mt-28">
-                        <h3 className="mb-2 font-semibold">{SLOT_NAME[active]}</h3>
+                        <h3 className="mb-2 font-semibold">
+                          {SLOT_NAME[active]}
+                          {maxPieces(active) > 1 && (
+                            <span className="ml-2 text-sm font-normal text-ink/70">
+                              Pick up to {maxPieces(active)} · {countIn(look, active)} chosen
+                            </span>
+                          )}
+                        </h3>
                         {states[active] === 'included' ? (
                           <p className="text-sm text-ink/70">Your outfit already comes with this.</p>
                         ) : (
@@ -677,9 +855,10 @@ export default function Studio() {
                               key={`${challenge.id}-${active}`}
                               challengeId={challenge.id}
                               slot={active}
-                              selected={look[active]}
+                              selected={look[active] ?? []}
+                              swaps={maxPieces(active) === 1}
                               onPick={(p) => put(active, p)}
-                              onRemove={() => removePiece(active)}
+                              onRemove={(p) => removePiece(active, p)}
                             />
                           )
                         )}
@@ -694,9 +873,35 @@ export default function Studio() {
           </div>
         )}
 
+        {confirmPublish && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center" onClick={() => setConfirmPublish(false)}>
+            <div role="dialog" aria-modal="true" aria-labelledby="publish-title" className="card w-full max-w-md text-center" onClick={(e) => e.stopPropagation()}>
+              <h2 id="publish-title" className="text-xl font-semibold">Publish without a preview?</h2>
+              <p className="mt-2 text-sm text-ink/75">
+                Your look goes on the Runway straight away, where everyone can see it.
+                {previewOn && pstatus?.blocked === 'verify' && ' To see it on a model first, confirm your email: it unlocks your free previews.'}
+                {previewOn && !pstatus?.blocked && ' You can still see it on a model first.'}
+              </p>
+              <div className="mt-5 flex flex-col gap-2">
+                <button type="button" className="btn btn-primary" disabled={busy} onClick={publish}>Yes, publish to the Runway</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setConfirmPublish(false)}>Not yet</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === 'mine' && (
           <div className="mt-6">
-            {!mine ? (
+            {!me ? (
+              <div className="card py-10 text-center">
+                <h2 className="font-semibold">Your published looks live here</h2>
+                <p className="mt-1 text-sm text-ink/70">Create a free account to publish looks and see them on the Runway.</p>
+                <div className="mt-4 flex justify-center gap-2">
+                  <Link className="btn btn-primary" href={`/signup${BACK_TO_LOOK}`}>Sign up free</Link>
+                  <Link className="btn btn-ghost" href={`/login${BACK_TO_LOOK}`}>Sign in</Link>
+                </div>
+              </div>
+            ) : !mine ? (
               <p className="text-sm text-ink/65">Loading…</p>
             ) : mine.length === 0 ? (
               <div className="card py-10 text-center">
@@ -756,13 +961,13 @@ export default function Studio() {
                 >
                   Add {SLOT_NAME[missing[0]].toLowerCase()}
                 </button>
-              ) : previewOn ? (
+              ) : canPreview ? (
                 <button className="btn btn-primary !min-h-[44px] shrink-0" onClick={preview}>✨ Preview</button>
               ) : (
-                <button className="btn btn-primary !min-h-[44px] shrink-0" disabled={busy} onClick={publish}>{busy ? 'Publishing…' : 'Publish'}</button>
+                <button className="btn btn-primary !min-h-[44px] shrink-0" disabled={busy} onClick={askPublish}>{busy ? 'Publishing…' : 'Publish'}</button>
               )
             ) : (
-              <button className="btn btn-primary !min-h-[44px] shrink-0" disabled={busy || previewing} onClick={publish}>
+              <button className="btn btn-primary !min-h-[44px] shrink-0" disabled={busy || previewing} onClick={askPublish}>
                 {busy ? 'Publishing…' : previewing ? 'Dressing…' : 'Publish'}
               </button>
             )}

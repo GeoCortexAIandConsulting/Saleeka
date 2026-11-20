@@ -3,7 +3,6 @@ import Logo, { UrduName } from '@/components/Logo';
 import LookFigure from './LookFigure';
 import ModestySlider from './ModestySlider';
 import RunwayShowcase from './RunwayShowcase';
-import TryStudio from './TryStudio';
 
 /* The landing page after the hero, in reading order. */
 
@@ -75,17 +74,26 @@ export function TryIt() {
     <section id="try" className="relative scroll-mt-20 bg-ivory py-20 sm:py-28">
       <div className="page">
         <div className="reveal mx-auto max-w-2xl text-center">
-          <Eyebrow>Try it now, no account needed</Eyebrow>
+          <Eyebrow>Free to join</Eyebrow>
           <h2 className="mt-4 text-5xl font-semibold leading-[1] sm:text-6xl">
-            Go on, <span className="italic text-plum">style one.</span>
+            Create your first design <span className="italic text-plum">for free.</span>
           </h2>
           <p className="mt-5 text-lg text-ink/75">
-            Real challenges, real pieces from Pakistan’s favourite brands. Style a Mehndi look for her or an Eid look for
-            him, complete it head to toe, and watch it come together.
+            Create a free account, pick a challenge, and put a complete look together from real pieces of 20+ Pakistani
+            brands, head to toe. Your first AI preview is free too: see your look on a model before you publish it.
           </p>
-        </div>
-        <div className="reveal mt-12">
-          <TryStudio />
+          <ol className="mx-auto mt-8 grid max-w-xl gap-3 text-left sm:grid-cols-3">
+            {['Create a free account', 'Pick a challenge and your pieces', 'Publish to the Runway'].map((step, i) => (
+              <li key={step} className="flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-plum text-sm font-semibold text-white">{i + 1}</span>
+                {step}
+              </li>
+            ))}
+          </ol>
+          <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+            <Link href="/signup" className="btn btn-primary !px-8 !py-4 text-base">Create my first design</Link>
+            <Link href="/runway" className="btn btn-ghost !px-8 !py-4 text-base">See the Runway</Link>
+          </div>
         </div>
       </div>
     </section>
@@ -302,7 +310,7 @@ export function Finale() {
             Your first look is a few <span className="italic text-gold-light">minutes away.</span>
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-lg text-white/75">
-            Create a free account, take a quick taste quiz, and step into the Studio.
+            Create a free account and style your first look in minutes.
           </p>
           <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
             <Link href="/signup" className="btn btn-light !px-8 !py-4 text-base">Start styling, it’s free</Link>

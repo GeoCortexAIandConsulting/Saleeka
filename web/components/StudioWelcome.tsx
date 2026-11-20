@@ -9,7 +9,7 @@ import type { FeedLook } from '@/lib/types';
  * trending looks from the Runway for ideas.
  */
 const STEPS = [
-  { title: 'Pick a challenge', text: 'An occasion and its colours: a Mehndi in mustard, an Eid in white, an office look.' },
+  { title: 'Pick a challenge, or your own', text: 'A Mehndi in mustard, an Eid in white, or whatever is on your mind: we find the brands that fit.' },
   { title: 'Build the look', text: 'Choose the outfit, then the dupatta, shoes, bag and jewellery from real pieces by Pakistan’s brands.' },
   { title: 'See it, then publish', text: 'Preview it on a model, then put it on the Runway for everyone to like and comment.' },
 ];

@@ -5,6 +5,7 @@ import { signOut } from '@/lib/api';
 import Logo from '@/components/Logo';
 import NotificationBell from '@/components/NotificationBell';
 import TabBar from '@/components/TabBar';
+import UsernamePrompt from '@/components/UsernamePrompt';
 
 const LINKS = [
   // Studio: design looks · Runway: everyone's published looks. (The AI stylist is hidden for now:
@@ -81,6 +82,7 @@ export default function Header({ signedIn = true }: { signedIn?: boolean }) {
       </header>
       {/* Outside the header: its blur would pin a fixed bar to the header instead of the screen. */}
       {signedIn && <TabBar />}
+      {signedIn && <UsernamePrompt />}
     </>
   );
 }
