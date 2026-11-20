@@ -2,14 +2,22 @@
 
 export type Gender = 'female' | 'male';
 
-/** Women's looks use the first six; men's use main, bottom, waistcoat, footwear and accessory. */
-export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry' | 'waistcoat' | 'accessory';
+/**
+ * Women's looks use main, bottom, dupatta, footwear, bag and jewelry; men's use main, bottom, waistcoat,
+ * footwear and accessory. In the Studio both can add a layer (coat, jacket, sweater, cardigan).
+ */
+export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry' | 'waistcoat' | 'accessory' | 'layer';
 /** The slots of a women's look (the stylist, the ranking rounds and saved looks use only these). */
 export const SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'footwear', 'bag', 'jewelry'];
+/** The slots of a women's look in the Studio, in the order they are chosen. */
+export const WOMEN_GAME_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry'];
 /** The slots of a men's look in the Studio. */
-export const MEN_SLOTS: Slot[] = ['main', 'bottom', 'waistcoat', 'footwear', 'accessory'];
-export const ALL_SLOTS: Slot[] = [...SLOTS, 'waistcoat', 'accessory'];
-export const slotsFor = (g: Gender | undefined): Slot[] => (g === 'male' ? MEN_SLOTS : SLOTS);
+export const MEN_SLOTS: Slot[] = ['main', 'bottom', 'waistcoat', 'layer', 'footwear', 'accessory'];
+export const ALL_SLOTS: Slot[] = [...SLOTS, 'waistcoat', 'accessory', 'layer'];
+/** A Studio look's slots, by gender. */
+export const slotsFor = (g: Gender | undefined): Slot[] => (g === 'male' ? MEN_SLOTS : WOMEN_GAME_SLOTS);
+
+export type Season = 'summer' | 'winter';
 
 export type Tier = 'budget' | 'mid' | 'premium';
 export type Sleeve = 'sleeveless' | 'short' | 'three-quarter' | 'full';
@@ -80,6 +88,8 @@ export interface Product {
   images?: string[];
   /** When stock and price were last read from the brand's site */
   checkedAt?: string;
+  /** When the piece arrived: the brand's own date for it, or the night our sync first saw it ("New in") */
+  arrivedAt?: string;
   /** Demo flag: all seed data is placeholder data */
   demo?: boolean;
 }
@@ -217,6 +227,8 @@ export interface Challenge {
   wantsDupatta: boolean;
   /** Women's or men's look; absent means women's */
   gender?: Gender;
+  /** A seasonal brief: only pieces for that season (or any season) can be chosen */
+  season?: Season;
   source: 'seed' | 'search';
   /** How many stylist searches asked for this */
   asks: number;
@@ -266,6 +278,8 @@ export interface PreviewImage {
   key: string;
   /** Which of our models wears the look (see services/preview.ts) */
   variant?: number;
+  /** The body size the model was shown at (small, medium, large, plus) */
+  size?: string;
   mime: string;
   /** base64 */
   data: string;
@@ -300,4 +314,13 @@ export interface EventRecord {
   lookId?: string;
   brandId?: string;
   at: string;
+}
+
+/** Written by each catalog import; the API reloads its in-memory catalogue when `version` changes. */
+export interface CatalogMeta {
+  id: 'catalog';
+  version: string;
+  syncedAt: string;
+  products: number;
+  inStock: number;
 }

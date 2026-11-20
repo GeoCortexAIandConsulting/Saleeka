@@ -84,8 +84,10 @@ describe('brands', () => {
   it('offers the named brands by gender and accepts them', () => {
     const q = publicQuestions(DEMO_BRANDS).find((x) => x.id === 'brandsLiked')!;
     const forG = (g: string) => q.options!.filter((o: any) => o.genders.includes(g)).map((o) => o.label);
-    expect(forG('female')).toHaveLength(15);
-    expect(forG('male')).toHaveLength(15);
+    expect(forG('female')).toHaveLength(19);
+    expect(forG('female')).toEqual(expect.arrayContaining(['Zeen', 'Breakout', 'Stylo', 'Almas']));
+    expect(forG('male')).toHaveLength(16);
+    expect(forG('male')).toContain('Almas');
     expect(forG('female')[0]).toBe('Khaadi');
     expect(forG('male')[0]).toBe('J. (Junaid Jamshed)');
     expect(forG('male')).toContain('Amir Adnan');
@@ -100,5 +102,47 @@ describe('brands', () => {
     expect(() => parse({ brandsLiked: six, brandsAvoided: [] })).not.toThrow();
     expect(() => parse({ brandsLiked: [...six, 'bareeze'], brandsAvoided: [] })).toThrow();
     expect(QUESTIONS.find((q) => q.id === 'brandsLiked')!.max).toBe(6);
+  });
+});
+
+describe('the quiz, for women and men', () => {
+  const ids = QUESTIONS.map((q) => q.id);
+  const labels = (id: string, g: 'female' | 'male') => QUESTIONS.find((q) => q.id === id)!.options!.filter((o) => !o.genders || o.genders.includes(g)).map((o) => o.label);
+
+  it('asks only eastern or western, and no longer asks about body shape, dupatta, embroidery or shoes', () => {
+    for (const id of ['bodyShape', 'shapeShoulders', 'shapeWaist', 'dupatta', 'embellishment', 'footwear']) expect(ids).not.toContain(id);
+    expect(labels('silhouettes', 'female')).toEqual(['Eastern', 'Western']);
+    expect(labels('silhouettes', 'male')).toEqual(['Eastern', 'Western']);
+  });
+
+  it('turns eastern / western into the cuts the catalogue tags, for women and men', () => {
+    const { dupatta: _d, embellishment: _e, footwear: _f, ...rest } = modestAnswers;
+    const eastern = buildProfile('u', answersSchema.parse({ ...rest, silhouettes: ['eastern'] }), DEMO_BRANDS);
+    expect(eastern.taste['silhouette:straight']).toBeGreaterThan(0);
+    expect(eastern.taste['silhouette:kurta']).toBeGreaterThan(0);
+    expect(eastern.taste['silhouette:western'] ?? 0).toBeLessThanOrEqual(0);
+    const western = buildProfile('u', answersSchema.parse({ ...rest, silhouettes: ['western'] }), DEMO_BRANDS);
+    expect(western.taste['silhouette:western']).toBeGreaterThan(0);
+    expect(western.taste['silhouette:suit']).toBeGreaterThan(0);
+    // Picking neither is not allowed.
+    expect(validateAnswerOptions(answersSchema.parse({ ...rest, silhouettes: [] }), DEMO_BRANDS)).toMatch(/eastern/i);
+  });
+
+  it('without the dupatta question: women get one with formal looks, men never', () => {
+    const { dupatta: _d, embellishment: _e, footwear: _f, ...rest } = modestAnswers;
+    const woman = answersSchema.parse({ ...rest, silhouettes: ['eastern'], gender: 'female' });
+    expect(validateAnswerOptions(woman, DEMO_BRANDS)).toBeNull();
+    expect(buildProfile('u', woman, DEMO_BRANDS)).toMatchObject({ dupatta: 'formal', hijab: false, embellishment: 'medium' });
+    const man = answersSchema.parse({ ...rest, silhouettes: ['western'], gender: 'male', styleWords: ['smart'] });
+    expect(validateAnswerOptions(man, DEMO_BRANDS)).toBeNull();
+    expect(buildProfile('u', man, DEMO_BRANDS)).toMatchObject({ dupatta: 'never', hijab: false });
+  });
+
+  it("words coverage and style for men", () => {
+    expect(labels('coverage', 'male')).toEqual(['Relaxed', 'Classic', 'Traditional']);
+    expect(labels('coverage', 'female')).toHaveLength(5);
+    expect(labels('styleWords', 'male')).toEqual(expect.arrayContaining(['smart', 'traditional', 'sporty']));
+    expect(labels('styleWords', 'male')).not.toContain('boho');
+    expect(QUESTIONS.find((q) => q.id === 'budget')!.helpFor!.male).not.toMatch(/dupatta/);
   });
 });

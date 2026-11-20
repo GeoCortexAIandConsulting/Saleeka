@@ -5,18 +5,36 @@
  *   npm run catalog:import                  # replace the demo catalog with the real one
  *
  * The demo brands and products are removed. Products of an imported brand that no longer appear on
- * its site are kept but marked out of stock, so saved looks still open.
+ * its site are kept but marked out of stock, so saved looks still open. The running API notices the
+ * import (meta.catalog.version) and reloads its in-memory catalogue within a minute.
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../config.js';
 import { DEMO_BRANDS } from '../data/seed.js';
-import { createMongoRepos } from '../db/index.js';
+import { connectMongo } from '../db/mongo.js';
 import type { Product } from '../types.js';
 import { CACHE_DIR } from './cache.js';
 import { normalize, type DropReason } from './normalize.js';
 import { BRAND_SOURCES, type RawItem } from './sources.js';
 
+/**
+ * "New in" dates. A piece keeps the arrival date it was first given, because shops re-list old stock;
+ * a new piece takes the brand's own creation date. A shop that gives no date (Sapphire) has no
+ * "New in": dating its pieces by the night a sync first saw them would call any piece new that our
+ * capped sample of its pages happened to reach for the first time. Returns how many pieces are new to us.
+ */
+export function setArrivals(all: Product[], seen: Map<string, string | null>): number {
+  let arrived = 0;
+  for (const p of all) {
+    const before = seen.get(p.id);
+    if (before) p.arrivedAt = before;
+    if (before === undefined) arrived++;
+  }
+  return arrived;
+}
+
+const isMain = process.argv[1] && /import\.[tj]s$/.test(process.argv[1]);
 const dryRun = process.argv.includes('--dry-run');
 
 async function main() {
@@ -67,33 +85,52 @@ async function main() {
   }
 
   if (!config.mongoUri) throw new Error('MONGODB_URI is not set; the import needs MongoDB.');
-  const repos = await createMongoRepos(config.mongoUri, config.mongoDb);
+  const { client, db } = await connectMongo(config.mongoUri, config.mongoDb);
   try {
-    const removedDemo = await repos.products.delete({ demo: true } as any);
-    for (const b of DEMO_BRANDS) await repos.brands.delete({ id: b.id });
-    for (const b of BRAND_SOURCES.filter((s) => imported.includes(s.id))) await repos.brands.upsert({ id: b.id, name: b.name, tier: b.tier });
-    let n = 0;
-    for (const p of all) {
-      await repos.products.upsert(p);
-      if (++n % 1000 === 0) console.log(`  saved ${n}/${all.length}`);
+    const col = db.collection<any>('products');
+    const now = new Date().toISOString();
+    const removedDemo = (await col.deleteMany({ demo: true })).deletedCount;
+    await db.collection<any>('brands').deleteMany({ _id: { $in: DEMO_BRANDS.map((b) => b.id) } });
+    for (const b of BRAND_SOURCES.filter((s) => imported.includes(s.id))) {
+      await db.collection<any>('brands').replaceOne({ _id: b.id }, { name: b.name, tier: b.tier }, { upsert: true });
+    }
+
+    const seen = new Map<string, string | null>();
+    for (const d of await col.find({ brandId: { $in: imported } }, { projection: { arrivedAt: 1 } }).toArray()) seen.set(d._id, d.arrivedAt ?? null);
+    const arrived = setArrivals(all, seen);
+
+    // Written in batches: one round trip per 1000 pieces instead of one each (minutes, not an hour, on Atlas).
+    for (let i = 0; i < all.length; i += 1000) {
+      await col.bulkWrite(
+        all.slice(i, i + 1000).map(({ id, ...rest }) => ({ replaceOne: { filter: { _id: id }, replacement: rest, upsert: true } })),
+        { ordered: false },
+      );
+      console.log(`  saved ${Math.min(i + 1000, all.length)}/${all.length}`);
     }
     // Gone from the brand's site since the last import: keep (saved looks still open) but out of stock.
     let gone = 0;
-    for (const old of await repos.products.find({ brandId: { $in: completeBrands } } as any)) {
-      if (!products.has(old.id) && old.inStock) {
-        await repos.products.update({ id: old.id }, { inStock: false });
-        gone++;
-      }
+    for (const brandId of completeBrands) {
+      const ids = all.filter((p) => p.brandId === brandId).map((p) => p.id);
+      gone += (await col.updateMany({ brandId, inStock: true, _id: { $nin: ids } }, { $set: { inStock: false, checkedAt: now } })).modifiedCount;
     }
     let removed = 0;
-    for (let i = 0; i < rejected.length; i += 500) removed += await repos.products.delete({ id: { $in: rejected.slice(i, i + 500) } } as any);
-    console.log(`Saved ${all.length} products; removed ${removedDemo} demo products and ${removed} items the rules now reject; ${gone} no longer listed (marked out of stock).`);
+    for (let i = 0; i < rejected.length; i += 500) removed += (await col.deleteMany({ _id: { $in: rejected.slice(i, i + 500) } })).deletedCount;
+
+    // Tells the running API to load the new catalogue (it checks this once a minute).
+    const inStock = await col.countDocuments({ inStock: true });
+    await db.collection<any>('meta').replaceOne({ _id: 'catalog' }, { version: now, syncedAt: now, products: await col.countDocuments(), inStock }, { upsert: true });
+    console.log(
+      `Saved ${all.length} products (${arrived} new since the last sync); removed ${removedDemo} demo products and ${removed} items the rules now reject; ` +
+        `${gone} no longer listed (marked out of stock). ${inStock} in stock in total.`,
+    );
   } finally {
-    await repos.close();
+    await client.close();
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (isMain) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

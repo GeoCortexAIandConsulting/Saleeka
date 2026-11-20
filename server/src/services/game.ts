@@ -10,9 +10,9 @@
 import { createHash } from 'node:crypto';
 import type { Repos } from '../db/index.js';
 import { AppError } from '../errors.js';
-import { FORMAL_OCCASIONS, slotsFor, type Challenge, type ChatConstraints, type Design, type DesignComment, type Gender, type LookItem, type Occasion, type Product, type Profile, type Slot } from '../types.js';
+import { FORMAL_OCCASIONS, slotsFor, type Challenge, type ChatConstraints, type Design, type DesignComment, type Gender, type LookItem, type Occasion, type Product, type Profile, type Season, type Slot } from '../types.js';
 import { minModestyFor } from './modesty.js';
-import { formality, suitsOccasion } from './composer.js';
+import { currentSeason, formality, suitsOccasion } from './composer.js';
 import { uid } from './looks.js';
 
 /** A search becomes a public challenge only once this many stylist searches asked for it. */
@@ -20,7 +20,7 @@ export const MIN_ASKS = 2;
 const PER_SLOT = 60;
 
 export type GameSlot = Slot;
-export const CLOTHING_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'waistcoat'];
+export const CLOTHING_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'waistcoat', 'layer'];
 
 /** A product's gender; everything imported before menswear is women's. */
 export const genderOf = (x: { gender?: Gender }): Gender => x.gender ?? 'female';
@@ -49,7 +49,11 @@ const SEED: Array<Omit<Challenge, 'id' | 'key' | 'source' | 'asks' | 'createdAt'
   { slug: 'office-soft', occasion: 'office', colors: ['beige', 'sage', 'sky', 'grey'], coverage: 3, wantsDupatta: false },
   { slug: 'office-navy-modest', occasion: 'office', colors: ['navy'], coverage: 4, wantsDupatta: true },
   { slug: 'university-easy', occasion: 'university', colors: [], coverage: 3, wantsDupatta: false },
-  { slug: 'casual-summer', occasion: 'casual', colors: ['peach', 'lemon', 'mint', 'sky'], coverage: 2, wantsDupatta: false },
+  { slug: 'casual-summer', occasion: 'casual', colors: ['peach', 'lemon', 'mint', 'sky'], coverage: 2, wantsDupatta: false, season: 'summer' },
+  // Winter briefs: khaddar, velvet and karandi outfits, shawls, and a coat or sweater on top.
+  { slug: 'winter-everyday', occasion: 'casual', colors: [], coverage: 3, wantsDupatta: false, season: 'winter' },
+  { slug: 'winter-wedding-guest', occasion: 'walima', colors: ['maroon', 'emerald', 'navy', 'plum', 'black'], coverage: 3, wantsDupatta: true, season: 'winter' },
+  { slug: 'winter-office', occasion: 'office', colors: ['brown', 'beige', 'grey', 'rust', 'olive', 'black'], coverage: 3, wantsDupatta: false, season: 'winter' },
   // Men's challenges: coverage and dupatta do not apply to menswear.
   { slug: 'men-eid-white', gender: 'male', occasion: 'eid', colors: ['white', 'ivory', 'beige'], coverage: 1, wantsDupatta: false },
   { slug: 'men-eid-pastel', gender: 'male', occasion: 'eid', colors: ['sky', 'mint', 'sage', 'lilac', 'peach'], coverage: 1, wantsDupatta: false },
@@ -58,12 +62,14 @@ const SEED: Array<Omit<Challenge, 'id' | 'key' | 'source' | 'asks' | 'createdAt'
   { slug: 'men-walima', gender: 'male', occasion: 'walima', colors: ['navy', 'black', 'grey', 'maroon'], coverage: 1, wantsDupatta: false },
   { slug: 'men-office', gender: 'male', occasion: 'office', colors: ['white', 'sky', 'navy', 'grey', 'beige'], coverage: 1, wantsDupatta: false },
   { slug: 'men-casual', gender: 'male', occasion: 'casual', colors: [], coverage: 1, wantsDupatta: false },
+  { slug: 'men-winter-casual', gender: 'male', occasion: 'casual', colors: [], coverage: 1, wantsDupatta: false, season: 'winter' },
+  { slug: 'men-winter-wedding', gender: 'male', occasion: 'baraat', colors: ['black', 'maroon', 'navy', 'brown', 'grey'], coverage: 1, wantsDupatta: false, season: 'winter' },
 ];
 
 /** One key per kind of request, so repeat searches count up the same challenge. */
-export function challengeKey(c: Pick<Challenge, 'occasion' | 'colors' | 'coverage' | 'wantsDupatta' | 'gender'>): string {
+export function challengeKey(c: Pick<Challenge, 'occasion' | 'colors' | 'coverage' | 'wantsDupatta' | 'gender' | 'season'>): string {
   const key = [c.occasion, [...c.colors].sort().join('+') || 'any', c.coverage, c.wantsDupatta ? 'dupatta' : '-'];
-  return (c.gender === 'male' ? [...key, 'male'] : key).join('|');
+  return [...key, ...(c.gender === 'male' ? ['male'] : []), ...(c.season ? [c.season] : [])].join('|');
 }
 
 export async function seedChallenges(repos: Repos): Promise<void> {
@@ -100,8 +106,12 @@ export async function recordSearchChallenge(repos: Repos, profile: Profile, c: C
 
 export function challengeTitle(c: Challenge): string {
   const colours = c.colors.length ? ` · ${c.colors.slice(0, 3).join(', ')}${c.colors.length > 3 ? ' or similar' : ''}` : '';
-  return `${OCCASION_LABEL[c.occasion]} ${genderOf(c) === 'male' ? 'look' : 'outfit'}${colours}`;
+  const occasion = c.season ? `${c.season === 'winter' ? 'Winter' : 'Summer'} ${OCCASION_LABEL[c.occasion].toLowerCase()}` : OCCASION_LABEL[c.occasion];
+  return `${occasion} ${genderOf(c) === 'male' ? 'look' : 'outfit'}${colours}`;
 }
+
+/** A seasonal challenge out of season (a summer brief in December) goes to the end of the list. */
+const offSeason = (c: Pick<Challenge, 'season'>, now = new Date()) => Boolean(c.season && c.season !== currentSeason(now));
 
 export function publicChallenge(c: Challenge, designs: number) {
   return {
@@ -114,6 +124,7 @@ export function publicChallenge(c: Challenge, designs: number) {
     modest: c.coverage >= 4,
     wantsDupatta: c.wantsDupatta,
     gender: genderOf(c),
+    season: c.season ?? null,
     fromShoppers: c.source === 'search',
     asks: c.asks,
     designs,
@@ -126,8 +137,11 @@ export async function listChallenges(repos: Repos) {
   // Counted by the database, one challenge at a time, instead of loading every look.
   const counts = await Promise.all(all.map((c) => repos.designs.count({ challengeId: c.id, ...PUBLISHED })));
   const count = new Map(all.map((c, i) => [c.id, counts[i]]));
-  // This week's challenges first, then shoppers' real requests (most asked), then the seeded ones.
-  all.sort((a, b) => Number(isFeatured(b)) - Number(isFeatured(a)) || (b.source === 'search' ? 1 : 0) - (a.source === 'search' ? 1 : 0) || b.asks - a.asks || a.id.localeCompare(b.id));
+  // This week's challenges first, then this season's, then shoppers' real requests (most asked), then
+  // the seeded ones; briefs for the other season come last.
+  const season = currentSeason();
+  const rank = (c: Challenge) => (isFeatured(c) ? 3 : c.season === season ? 2 : offSeason(c) ? 0 : 1);
+  all.sort((a, b) => rank(b) - rank(a) || (b.source === 'search' ? 1 : 0) - (a.source === 'search' ? 1 : 0) || b.asks - a.asks || a.id.localeCompare(b.id));
   return all.map((c) => publicChallenge(c, count.get(c.id) ?? 0));
 }
 
@@ -140,19 +154,34 @@ export async function loadChallenge(repos: Repos, id: string): Promise<Challenge
 /**
  * The pieces a player may choose for a challenge, per slot, from every brand, best fit first.
  */
-export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT): Partial<Record<Slot, Product[]>> {
+/** "New in": a piece that arrived on the brand's site in the last two weeks. */
+export const NEW_DAYS = 14;
+export const isNew = (p: Product, now = Date.now()) => {
+  const at = p.arrivedAt ? Date.parse(p.arrivedAt) : NaN;
+  return at <= now && now - at < NEW_DAYS * 86_400_000;
+};
+
+export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT, now = new Date()): Partial<Record<Slot, Product[]>> {
   const gender = genderOf(c);
   const minModesty = minModestyFor(c.coverage);
   const bottomMin = minModesty >= 3.5 ? 5 : minModesty >= 2.5 ? 3 : 0;
-  const usable = catalog.filter((p) => p.inStock && genderOf(p) === gender && suitsOccasion(p, c.occasion));
+  // A seasonal brief uses its own season; any other uses the season it is now (winter: Nov to Feb).
+  const season: Season = c.season ?? currentSeason(now);
+  const forSeason = (p: Product) => p.seasons.includes(season) || p.seasons.includes('all');
+  const usable = catalog.filter((p) => p.inStock && genderOf(p) === gender && suitsOccasion(p, c.occasion) && (!c.season || forSeason(p)));
   const festive = FORMAL_OCCASIONS.includes(c.occasion);
   // Best fit for the challenge first, not cheapest first: the order nudges what players pick, and
   // their picks teach the stylist. Outfits: mainly the asked colour, then dressier for festive briefs.
   // Everything else: the challenge's level of dress-up, then (festive) the finer piece first.
+  // In-season pieces rise and off-season ones sink (khaddar and coats in winter, lawn in summer).
+  const seasonFit = (p: Product) => (p.seasons.includes(season) ? 1 : p.seasons.includes('all') ? 0 : -1.5);
+  // New arrivals get a small lift, so a fresh drop shows near the top without burying a better fit.
   const fit = (p: Product) =>
-    p.slot === 'main'
+    seasonFit(p) +
+    (isNew(p, now.getTime()) ? 0.5 : 0) +
+    (p.slot === 'main'
       ? (c.colors.includes(p.colors[0]) ? 2 : 0) + (festive ? 0.5 * p.embellishment : -0.3 * p.embellishment)
-      : -Math.abs(formality(p) - (festive ? 2.5 : 0.5));
+      : -Math.abs(formality(p) - (festive ? 2.5 : 0.5)));
   const of = (slot: Slot, keep: (p: Product) => boolean = () => true) =>
     usable
       .filter((p) => p.slot === slot && keep(p))
@@ -164,6 +193,7 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT):
       main: of('main', (p) => p.occasions.includes(c.occasion) && colourOk(p)),
       bottom: of('bottom'),
       waistcoat: of('waistcoat', (p) => p.occasions.includes(c.occasion) || !FORMAL_OCCASIONS.includes(c.occasion)),
+      layer: of('layer', (p) => p.occasions.includes(c.occasion)),
       footwear: of('footwear'),
       accessory: of('accessory'),
     };
@@ -178,6 +208,7 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT):
     ),
     bottom: of('bottom', (p) => p.modesty >= bottomMin),
     dupatta: of('dupatta', (p) => p.occasions.includes(c.occasion) || !FORMAL_OCCASIONS.includes(c.occasion)),
+    layer: of('layer', (p) => p.occasions.includes(c.occasion)),
     footwear: of('footwear'),
     bag: of('bag'),
     jewelry: of('jewelry'),
@@ -187,7 +218,7 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT):
 /* ------------------------------ Studio piece browser ------------------------------ */
 
 export const PIECES_PAGE = 24;
-export const PIECE_SORTS = ['best', 'price-asc', 'price-desc'] as const;
+export const PIECE_SORTS = ['best', 'new', 'price-asc', 'price-desc'] as const;
 export type PieceSort = (typeof PIECE_SORTS)[number];
 
 export interface PieceQuery {
@@ -261,6 +292,12 @@ export function gamePieces(catalog: Product[], c: Challenge, query: PieceQuery) 
   const sort = query.sort ?? 'best';
   if (sort === 'price-asc') groups.sort((a, b) => cheapest(a) - cheapest(b) || a.key.localeCompare(b.key));
   else if (sort === 'price-desc') groups.sort((a, b) => cheapest(b) - cheapest(a) || a.key.localeCompare(b.key));
+  else if (sort === 'new') {
+    // Newest arrivals first; pieces with no known date keep their best-fit order after them.
+    const newest = (g: PieceGroup) => Math.max(0, ...g.variants.map((p) => (p.arrivedAt ? Date.parse(p.arrivedAt) || 0 : 0)));
+    const order = new Map(mixBrands(groups).map((g, i) => [g.key, i]));
+    groups.sort((a, b) => newest(b) - newest(a) || order.get(a.key)! - order.get(b.key)!);
+  }
   else groups = mixBrands(groups);
 
   const pages = Math.max(1, Math.ceil(groups.length / PIECES_PAGE));
@@ -281,17 +318,18 @@ type Rule = 'required' | 'optional' | 'included';
 /** Which slots a look needs, given its main piece: a suit may bring its own bottom (and dupatta). */
 export function slotRules(main: Product, c: Challenge): Partial<Record<Slot, Rule>> {
   const bottom: Rule = main.includesBottom ? 'included' : 'required';
-  if (genderOf(c) === 'male') return { bottom, waistcoat: 'optional', footwear: 'required', accessory: 'optional' };
+  if (genderOf(c) === 'male') return { bottom, waistcoat: 'optional', layer: 'optional', footwear: 'required', accessory: 'optional' };
   return {
     bottom,
     dupatta: main.includesDupatta ? 'included' : c.wantsDupatta ? 'required' : 'optional',
+    layer: 'optional',
     footwear: 'required',
     bag: 'optional',
     jewelry: 'optional',
   };
 }
 
-const SLOT_WORD: Partial<Record<Slot, string>> = { footwear: 'shoes', jewelry: 'jewellery' };
+const SLOT_WORD: Partial<Record<Slot, string>> = { footwear: 'shoes', jewelry: 'jewellery', layer: 'a coat or jacket' };
 
 export async function submitDesign(
   repos: Repos,
@@ -508,6 +546,19 @@ async function feedLooks(repos: Repos, viewerId: string, page: Design[]) {
   }));
 }
 
+/**
+ * Live like and comment counts for the looks on someone's screen (the Runway and look pages poll
+ * this). Published looks only; drafts and unknown ids are left out. Counts are public, like the looks.
+ */
+export async function liveCounts(repos: Repos, ids: string[]) {
+  const designs = (await repos.designs.find({ id: { $in: ids } })).filter(isPublished);
+  if (!designs.length) return {};
+  const comments = await repos.comments.find({ designId: { $in: designs.map((d) => d.id) } });
+  const count = new Map<string, number>();
+  for (const c of comments) count.set(c.designId, (count.get(c.designId) ?? 0) + 1);
+  return Object.fromEntries(designs.map((d) => [d.id, { likes: d.up, comments: count.get(d.id) ?? 0 }]));
+}
+
 /** One published look, for its own page on the Runway. */
 export async function feedLook(repos: Repos, viewerId: string, designId: string) {
   const d = await repos.designs.findOne({ id: designId });
@@ -639,15 +690,18 @@ const WEEK_ZERO = Date.UTC(2024, 0, 1) - 5 * 60 * 60 * 1000;
 export const weekIndex = (now = Date.now()) => Math.floor((now - WEEK_ZERO) / WEEK_MS);
 export const weekEnds = (now = Date.now()) => new Date(WEEK_ZERO + (weekIndex(now) + 1) * WEEK_MS).toISOString();
 
-/** The seeded challenges, women's and men's, in a fixed order: each week features the next one. */
-function rotation(gender: Gender) {
-  return SEED.filter((c) => genderOf(c) === gender).map((c) => `seed-${c.slug}`);
+/**
+ * The seeded challenges, women's and men's, in a fixed order: each week features the next one.
+ * A seasonal brief is only featured in its season.
+ */
+function rotation(gender: Gender, now: number) {
+  return SEED.filter((c) => genderOf(c) === gender && !offSeason(c, new Date(now))).map((c) => `seed-${c.slug}`);
 }
 
 /** This week's featured challenge for women and for men. Everyone sees the same ones all week. */
 export function featuredIds(now = Date.now()): string[] {
   return (['female', 'male'] as Gender[]).map((g) => {
-    const ids = rotation(g);
+    const ids = rotation(g, now);
     return ids[weekIndex(now) % ids.length];
   });
 }

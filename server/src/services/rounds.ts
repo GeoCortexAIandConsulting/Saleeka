@@ -1,5 +1,5 @@
 import type { Repos, ProfileDoc } from '../db/index.js';
-import type { Look, Occasion, RoundRecord } from '../types.js';
+import type { Look, Occasion, Product, RoundRecord } from '../types.js';
 import { composeLooks, type ComposeRequest, type ComposedLook } from './composer.js';
 import { styleLooks } from './stylist.js';
 import type { Llm } from './llm.js';
@@ -26,6 +26,8 @@ export async function createRound(
   repos: Repos,
   profile: ProfileDoc,
   llm?: Llm,
+  /** The in-stock catalogue (the app passes its in-memory copy) */
+  catalogOf: () => Promise<Product[]> = () => repos.products.find({ inStock: true }),
 ): Promise<{ round: RoundRecord; looks: HydratedLook[] }> {
   const previous = await repos.rounds.find({ userId: profile.userId });
   const open = previous.find((r) => !r.completedAt);
@@ -43,7 +45,7 @@ export async function createRound(
     ls.forEach((l) => seenMains.add(l.items.find((i) => i.slot === 'main')!.productId));
   }
   // The stylist and its ranking rounds dress women only, so menswear stays out.
-  const catalog = (await repos.products.find()).filter((p) => p.gender !== 'male');
+  const catalog = (await catalogOf()).filter((p) => p.gender !== 'male');
   // Find a request that can be met, then let the stylist (when a model is set up) style it as complete outfits.
   let request: ComposeRequest = { occasion, excludeMainIds: [...seenMains] };
   let composed = composeLooks(catalog, profile, request);

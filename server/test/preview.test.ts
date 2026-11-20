@@ -17,6 +17,8 @@ const realFetch = globalThis.fetch;
 const saved = { ...config.preview };
 
 beforeAll(async () => {
+  // A real key in server/.env must not switch the preview on (or reach the mocks) in these tests.
+  config.preview.apiKey = '';
   repos = createMemoryRepos();
   app = await createApp({ repos, llm: new RulesLlm(), rateLimit: false });
   for (const p of await repos.products.find()) await repos.products.update({ id: p.id }, { images: [`https://cdn.example/${p.id}.jpg`] });
@@ -81,7 +83,7 @@ describe('AI look preview', () => {
     expect(img.headers['content-type']).toMatch(/image\/png/);
     // A draft's image is private to its designer.
     expect((await request(app).get(res.body.design.previewUrl)).status).toBe(404);
-    const base = (await repos.previews.find()).find((p) => p.id.startsWith('base-female-'))!;
+    const base = (await repos.previews.find()).find((p) => p.id.startsWith('base-v2-female-'))!;
     expect(base).toBeTruthy();
     expect((await agent.get(`/api/previews/${base.id}`)).status).toBe(404);
     // A lively model, not a blank face.
@@ -93,7 +95,7 @@ describe('AI look preview', () => {
     expect(other.status).toBe(200);
     expect(other.body.design.previewUrl).not.toBe(res.body.design.previewUrl);
     expect(gemini).toHaveLength(4);
-    const bases = (await repos.previews.find()).filter((p) => p.id.startsWith('base-female-'));
+    const bases = (await repos.previews.find()).filter((p) => p.id.startsWith('base-v2-female-'));
     expect(bases).toHaveLength(2);
     gemini.length = 2;
 
@@ -108,6 +110,56 @@ describe('AI look preview', () => {
     expect(feed.body.looks.find((l: any) => l.id === again.body.design.id).previewUrl).toBe(res.body.design.previewUrl);
     // Published, its image opens for anyone with the link (shared on WhatsApp).
     expect((await request(app).get(res.body.design.previewUrl)).status).toBe(200);
+  });
+
+  it('shows the look on a fair, beautiful model at the body size picked, styled for the occasion', async () => {
+    config.preview.project = 'test-project';
+    gemini.length = 0;
+    const { agent, design } = await draftLook();
+    const res = await agent.post(`/api/game/designs/${design.id}/preview`).send({ size: 'plus' });
+    expect(res.status).toBe(200);
+    const base = gemini.find((g) => g.parts.every((p) => p.text))!.parts[0].text;
+    expect(base).toMatch(/beautiful/);
+    expect(base).toMatch(/fair/);
+    expect(base).toMatch(/plus-size/);
+    const look = gemini.at(-1)!.parts.at(-1).text;
+    expect(look).toMatch(/style them together/i);
+    expect(look).toMatch(/for a mehndi/);
+    expect(look).toMatch(/plus-size/);
+    expect((await repos.previews.find()).some((p) => /^base-v2-female-\d-plus$/.test(p.id))).toBe(true);
+    // "Another model" keeps the size; a new size is a new image.
+    gemini.length = 0;
+    await agent.post(`/api/game/designs/${design.id}/preview`).send({ anotherModel: true });
+    expect(gemini.at(-1)!.parts.at(-1).text).toMatch(/plus-size/);
+    expect((await agent.post(`/api/game/designs/${design.id}/preview`).send({ size: 'giant' })).status).toBe(400);
+  });
+
+  it('does the same for men: a fair, handsome model at his size, menswear worn crisp and styled for the occasion', async () => {
+    config.preview.project = 'test-project';
+    gemini.length = 0;
+    const agent = request.agent(app);
+    const email = `preview-men${Math.random().toString(36).slice(2)}@example.com`;
+    expect((await agent.post('/api/auth/signup').send({ email, password: 'correct-horse-9', name: 'Ali', consent: true })).status).toBe(201);
+    const { body } = await agent.get('/api/game/challenges/seed-men-baraat/items');
+    const first = (slot: string) => body.items[slot][0];
+    const items = [{ slot: 'main', productId: first('main').id }, { slot: 'footwear', productId: first('footwear').id }];
+    if (!first('main').includesBottom) items.push({ slot: 'bottom', productId: first('bottom').id });
+    const draft = await agent.post('/api/game/designs').send({ challengeId: 'seed-men-baraat', items, draft: true });
+    expect(draft.status).toBe(201);
+
+    const res = await agent.post(`/api/game/designs/${draft.body.design.id}/preview`).send({ size: 'large' });
+    expect(res.status).toBe(200);
+    const base = gemini.find((g) => g.parts.every((p) => p.text))!.parts[0].text;
+    expect(base).toMatch(/handsome South Asian man/);
+    expect(base).toMatch(/fair complexion/);
+    expect(base).toMatch(/broad, heavier build/);
+    expect(base).toMatch(/neat grooming/);
+    const look = gemini.at(-1)!.parts.at(-1).text;
+    expect(look).toMatch(/for a baraat/);
+    expect(look).toMatch(/fit every garment naturally to his broad, heavier build/i);
+    expect(look).toMatch(/crisp and pressed/);
+    expect(look).not.toMatch(/She /);
+    expect((await repos.previews.find()).some((p) => /^base-v2-male-\d-large$/.test(p.id))).toBe(true);
   });
 
   it('limits new images per player per day, and deleting the account deletes their previews', async () => {

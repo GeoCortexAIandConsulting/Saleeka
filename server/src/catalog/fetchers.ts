@@ -53,6 +53,7 @@ export async function fetchShopify(src: BrandSource, o: FetchOptions): Promise<R
         })),
         images: (p.images ?? []).map((i: any) => i.src).filter(Boolean),
         publishedAt: p.published_at ?? p.created_at,
+        createdAt: p.created_at ?? undefined,
       });
     }
     o.log(`${src.id}: page ${page}, ${out.length} products`);
@@ -258,5 +259,6 @@ export function parseBareeze(src: BrandSource, html: string, url: string): RawIt
     variants: variants.length ? variants : [{ title: 'Default', price: 0, available: !p.sold_out }],
     images: [...imgs],
     publishedAt: p.created_at ? String(p.created_at).replace(/'$/, '') : undefined,
+    createdAt: p.created_at ? String(p.created_at).replace(/'$/, '') : undefined,
   };
 }

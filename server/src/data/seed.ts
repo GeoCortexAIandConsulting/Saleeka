@@ -424,11 +424,53 @@ function menswear(): Product[] {
   add('accessory', 'silver watch', 'silver', 9500, 'watch', ['office', 'casual', 'university', 'eid', 'mehndi', 'baraat', 'walima', 'party']);
   add('accessory', 'brown leather belt', 'brown', 2900, 'belt', ['office', 'casual', 'university', 'eid', 'mehndi', 'baraat', 'walima', 'party']);
   add('accessory', 'gold cufflinks', 'gold', 3500, 'cufflinks', ['eid', 'mehndi', 'baraat', 'walima', 'party', 'office']);
+  // Layers come last, so the ids of the pieces above stay as they were.
+  add('layer', 'charcoal wool overcoat', 'grey', 14500, 'coat', ['casual', 'university', 'office', 'eid', 'mehndi', 'baraat', 'walima', 'party'], { seasons: ['winter'] });
+  add('layer', 'navy knit sweater', 'navy', 5200, 'sweater', ['casual', 'university', 'office', 'eid'], { seasons: ['winter'] });
+  add('layer', 'black puffer jacket', 'black', 9900, 'puffer', ['casual', 'university'], { seasons: ['winter'] });
   return out;
+}
+
+/** Women's coats, cardigans and shawl-collared jackets for the Studio's layer slot (no randomness). */
+function womensLayers(): Product[] {
+  const brand = CLOTHING_BRANDS[0];
+  const layer = (title: string, color: string, price: number, silhouette: string, occasions: Occasion[], embellishment: 0 | 1 | 2 | 3 = 0): Product => ({
+    id: nextId('layer'),
+    brandId: brand.id,
+    brandName: brand.name,
+    tier: brand.tier,
+    title,
+    slot: 'layer',
+    price,
+    colors: [color],
+    hex: PALETTE[color].hex,
+    fabric: silhouette === 'coat' ? 'khaddar' : 'cotton',
+    silhouette,
+    sheer: false,
+    embellishment,
+    modesty: 5,
+    occasions,
+    seasons: ['winter'],
+    includesDupatta: false,
+    includesBottom: false,
+    stitched: true,
+    sizes: ['S', 'M', 'L'],
+    inStock: true,
+    url: `https://example.com/demo/${brand.id}/${counter}`,
+    demo: true,
+  });
+  const ALL: Occasion[] = ['casual', 'university', 'office', 'eid', 'mehndi', 'baraat', 'walima', 'party'];
+  return [
+    layer('camel long coat', 'beige', 12900, 'coat', ALL),
+    layer('black long coat', 'black', 12900, 'coat', ALL),
+    layer('grey knit cardigan', 'grey', 4900, 'cardigan', ['casual', 'university', 'office', 'eid']),
+    layer('maroon velvet jacket with embroidery', 'maroon', 15900, 'jacket', ['eid', 'mehndi', 'baraat', 'walima', 'party', 'office'], 2),
+    layer('ivory cable-knit sweater', 'ivory', 5400, 'sweater', ['casual', 'university', 'office', 'eid']),
+  ];
 }
 
 export function buildDemoCatalog(): Product[] {
   counter = 0;
   rand = mulberry32(20261101); // same catalog on every run
-  return [...mains(), ...bottoms(), ...dupattas(), ...accessories(), ...menswear()];
+  return [...mains(), ...bottoms(), ...dupattas(), ...accessories(), ...menswear(), ...womensLayers()];
 }

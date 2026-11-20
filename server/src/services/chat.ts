@@ -1,5 +1,5 @@
 import type { Repos, ProfileDoc } from '../db/index.js';
-import type { ChatConstraints, ChatSession, Occasion } from '../types.js';
+import type { ChatConstraints, ChatSession, Occasion, Product } from '../types.js';
 import { nearbyColors } from '../data/palette.js';
 import { composeLooks, swapSlot, type ComposeRequest, type ComposedLook } from './composer.js';
 import { factsFor, hydrateLooks, persistLooks, sumPrice, uid, type HydratedLook } from './looks.js';
@@ -115,6 +115,8 @@ export async function handleChat(
   profile: ProfileDoc,
   message: string,
   sessionId?: string,
+  /** The in-stock catalogue (the app passes its in-memory copy) */
+  catalogOf: () => Promise<Product[]> = () => repos.products.find({ inStock: true }),
 ): Promise<ChatReply> {
   const brands = await repos.brands.find();
   let session: ChatSession | null = sessionId
@@ -151,7 +153,7 @@ export async function handleChat(
   if (!constraints.occasion) constraints.occasion = profile.occasions[0];
 
   // The stylist and its ranking rounds dress women only, so menswear stays out.
-  const catalog = (await repos.products.find()).filter((p) => p.gender !== 'male');
+  const catalog = (await catalogOf()).filter((p) => p.gender !== 'male');
   // Rules find which request can be met (relaxing it if needed, and saying so); the stylist styles it.
   const { looks: ruleLooks, notes, request } = composeWithRelaxation(catalog, profile, constraints);
   const styled = ruleLooks.length ? await styleLooks(llm, catalog, profile, request) : { looks: [], notes: [], styledByAi: 0 };
@@ -186,12 +188,13 @@ export async function swapLookItem(
   profile: ProfileDoc,
   lookId: string,
   slot: Slot,
+  catalogOf: () => Promise<Product[]> = () => repos.products.find({ inStock: true }),
 ): Promise<HydratedLook> {
   const look = await repos.looks.findOne({ id: lookId, userId: profile.userId });
   if (!look) throw new AppError(404, 'Look not found');
   const [hydrated] = await hydrateLooks(repos, [look]);
   // The stylist and its ranking rounds dress women only, so menswear stays out.
-  const catalog = (await repos.products.find()).filter((p) => p.gender !== 'male');
+  const catalog = (await catalogOf()).filter((p) => p.gender !== 'male');
   const occasion = look.occasion ?? undefined;
   // A swap must keep honouring what the shopper asked for in this chat.
   const sessions = await repos.sessions.find({ userId: profile.userId });

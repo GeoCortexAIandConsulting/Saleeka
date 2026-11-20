@@ -38,6 +38,10 @@ export interface Question {
   palettes?: Record<string, string[]>;
   /** Only ask this question when another question has this answer */
   showIf?: { id: string; value: string };
+  /** Only ask this question for these genders (a skipped gender counts as female) */
+  genders?: Gender[];
+  /** Help worded for one gender, in place of `help` */
+  helpFor?: Partial<Record<Gender, string>>;
 }
 
 /**
@@ -103,103 +107,31 @@ export const QUESTIONS: Question[] = [
     unit: 'kg',
   },
   {
-    id: 'bodyShape',
-    type: 'single',
-    title: 'Which body shape sounds closest? (optional)',
-    help: 'Helps with silhouette advice. Skip if you prefer.',
-    optional: true,
-    options: [
-      { value: 'hourglass', label: 'Hourglass', hint: 'Shoulders and hips balanced, defined waist', genders: ['female'] },
-      { value: 'pear', label: 'Pear', hint: 'Hips wider than shoulders', genders: ['female'] },
-      { value: 'rectangle', label: 'Rectangle', hint: 'Shoulders, waist and hips about the same', genders: ['female'] },
-      { value: 'apple', label: 'Apple', hint: 'Fuller middle, slimmer legs', genders: ['female'] },
-      { value: 'inverted-triangle', label: 'Inverted triangle', hint: 'Shoulders wider than hips', genders: ['female'] },
-      { value: 'trapezoid', label: 'Trapezoid', hint: 'Broad chest and shoulders, slightly narrower waist', genders: ['male'] },
-      { value: 'inverted-triangle', label: 'Inverted triangle', hint: 'Much broader shoulders than waist and hips', genders: ['male'] },
-      { value: 'rectangle', label: 'Rectangle', hint: 'Shoulders, waist and hips about the same', genders: ['male'] },
-      { value: 'triangle', label: 'Triangle', hint: 'Hips wider than shoulders', genders: ['male'] },
-      { value: 'oval', label: 'Oval', hint: 'Fuller midsection', genders: ['male'] },
-      { value: 'not-sure', label: 'Not sure? Help me figure it out', hint: 'Two quick questions and we work it out for you' },
-    ],
-  },
-  {
-    id: 'shapeShoulders',
-    type: 'single',
-    title: 'Compared with your hips, your shoulders are…',
-    help: 'Look in a mirror or think about how kameez fit you across the top vs the bottom.',
-    optional: true,
-    showIf: { id: 'bodyShape', value: 'not-sure' },
-    options: [
-      { value: 'narrower', label: 'Narrower than my hips', hint: 'Tops fit before bottoms do' },
-      { value: 'same', label: 'About the same width' },
-      { value: 'wider', label: 'Wider than my hips', hint: 'Bottoms fit before tops do' },
-    ],
-  },
-  {
-    id: 'shapeWaist',
-    type: 'single',
-    title: 'And your waist is…',
-    help: 'Compared with your bust and hips.',
-    optional: true,
-    showIf: { id: 'bodyShape', value: 'not-sure' },
-    options: [
-      { value: 'defined', label: 'Clearly narrower', hint: 'Fitted waists suit me' },
-      { value: 'straight', label: 'Not much narrower', hint: 'Fairly straight up and down' },
-      { value: 'fuller', label: 'About the same or fuller', hint: 'I carry weight around my middle' },
-    ],
-  },
-  {
     id: 'coverage',
     type: 'single',
     title: 'How much coverage do you like in your outfits?',
     help: 'We will never show you looks below this level.',
+    helpFor: { male: 'How covered and how traditional you like to dress.' },
     options: [
-      { value: '1', label: 'Relaxed', hint: 'Short sleeves and shorter lengths are fine' },
-      { value: '2', label: 'Balanced', hint: 'Mostly covered, some sleeve or length variety' },
-      { value: '3', label: 'Modest', hint: 'Sleeves to the elbow or longer, longer kameez' },
-      { value: '4', label: 'Very modest', hint: 'Full sleeves, long lengths, higher necklines' },
-      { value: '5', label: 'Fully covered', hint: 'Maximum coverage, hijab and abaya friendly' },
-    ],
-  },
-  {
-    id: 'dupatta',
-    type: 'single',
-    title: 'Do you wear a dupatta or scarf?',
-    options: [
-      { value: 'always', label: 'Always' },
-      { value: 'formal', label: 'Only for formal events' },
-      { value: 'never', label: 'Rarely or never' },
-      { value: 'hijab', label: 'I wear hijab' },
+      { value: '1', label: 'Relaxed', hint: 'Short sleeves and shorter lengths are fine', genders: ['female'] },
+      { value: '2', label: 'Balanced', hint: 'Mostly covered, some sleeve or length variety', genders: ['female'] },
+      { value: '3', label: 'Modest', hint: 'Sleeves to the elbow or longer, longer kameez', genders: ['female'] },
+      { value: '4', label: 'Very modest', hint: 'Full sleeves, long lengths, higher necklines', genders: ['female'] },
+      { value: '5', label: 'Fully covered', hint: 'Maximum coverage, hijab and abaya friendly', genders: ['female'] },
+      { value: '1', label: 'Relaxed', hint: 'Half sleeves, polos and T-shirts are fine', genders: ['male'] },
+      { value: '3', label: 'Classic', hint: 'Full sleeves; a kurta to the knee', genders: ['male'] },
+      { value: '4', label: 'Traditional', hint: 'Long, loose kurta or shalwar kameez; nothing tight', genders: ['male'] },
     ],
   },
   {
     id: 'silhouettes',
     type: 'multi',
-    max: 3,
-    title: 'Which silhouettes do you love? (pick up to 3)',
+    max: 2,
+    title: 'What do you like to wear?',
+    help: 'Pick both if you wear both.',
     options: [
-      // Women
-      { value: 'western', label: 'Western style', genders: ['female'] },
-      { value: 'shalwar-kameez', label: 'Classic shalwar kameez', genders: ['female'] },
-      { value: 'a-line', label: 'A-line / flared kameez', genders: ['female'] },
-      { value: 'angrakha', label: 'Angrakha', genders: ['female'] },
-      { value: 'maxi', label: 'Maxi / long frock', genders: ['female'] },
-      { value: 'peplum', label: 'Peplum', genders: ['female'] },
-      { value: 'sharara', label: 'Sharara / gharara', genders: ['female'] },
-      { value: 'anarkali', label: 'Anarkali', genders: ['female'] },
-      { value: 'co-ord', label: 'Co-ord set (short shirt + trouser)', genders: ['female'] },
-      { value: 'fusion', label: 'Fusion / western-cut', genders: ['female'] },
-      // Men
-      { value: 'shalwar-kameez', label: 'Shalwar kameez', genders: ['male'] },
-      { value: 'kurta-trouser', label: 'Kurta + trouser / pajama', genders: ['male'] },
-      { value: 'waistcoat', label: 'Waistcoat (with kurta or shalwar kameez)', genders: ['male'] },
-      { value: 'western-shirt', label: 'Western shirt + trouser', genders: ['male'] },
-      { value: 'suit', label: 'Suit (two-piece / three-piece)', genders: ['male'] },
-      { value: 'sherwani', label: 'Sherwani', genders: ['male'] },
-      { value: 'prince-coat', label: 'Prince coat', genders: ['male'] },
-      { value: 'polo-jeans', label: 'Polo / T-shirt + jeans or chinos', genders: ['male'] },
-      { value: 'pathani', label: 'Pathani suit', genders: ['male'] },
-      { value: 'kurta-jeans', label: 'Kurta + jeans (fusion)', genders: ['male'] },
+      { value: 'eastern', label: 'Eastern', hint: 'Shalwar kameez, kurta, sherwani and other desi wear' },
+      { value: 'western', label: 'Western', hint: 'Shirts, tops, trousers, jeans, dresses and suits' },
     ],
   },
   {
@@ -218,19 +150,6 @@ export const QUESTIONS: Question[] = [
     optional: true,
     title: 'Any colours you never wear? (optional)',
     options: COLOR_NAMES.map((c) => ({ value: c, label: c, hex: PALETTE[c].hex })),
-  },
-  {
-    id: 'embellishment',
-    type: 'single',
-    title: 'How much embroidery and embellishment?',
-    options: [
-      { value: 'minimal', label: 'Minimal', hint: 'Plain or lightly printed', genders: ['female'] },
-      { value: 'medium', label: 'Medium', hint: 'Some embroidery or lace', genders: ['female'] },
-      { value: 'heavy', label: 'Heavy', hint: 'Statement work, shine and detail', genders: ['female'] },
-      { value: 'minimal', label: 'Minimal', hint: 'Plain fabric or a subtle texture', genders: ['male'] },
-      { value: 'medium', label: 'Medium', hint: 'Embroidered collar, placket or cuffs', genders: ['male'] },
-      { value: 'heavy', label: 'Heavy', hint: 'Statement work: dense embroidery, zari and buttons', genders: ['male'] },
-    ],
   },
   {
     id: 'seasons',
@@ -298,6 +217,7 @@ export const QUESTIONS: Question[] = [
     type: 'single',
     title: 'Typical budget for a complete outfit (PKR)',
     help: 'Head to toe: clothes, dupatta, shoes and accessories.',
+    helpFor: { male: 'Head to toe: clothes, waistcoat, shoes and accessories.' },
     options: [
       { value: 'b1', label: 'Under 10,000' },
       { value: 'b2', label: '10,000 to 20,000' },
@@ -322,27 +242,14 @@ export const QUESTIONS: Question[] = [
     title: 'Brands you would rather skip (optional)',
   },
   {
-    id: 'footwear',
-    type: 'multi',
-    max: 3,
-    title: 'Shoes you actually wear',
-    options: [
-      { value: 'heel', label: 'Heels' },
-      { value: 'flat', label: 'Flats' },
-      { value: 'khussa', label: 'Khussa' },
-      { value: 'sneaker', label: 'Sneakers' },
-      { value: 'sandal', label: 'Sandals' },
-    ],
-  },
-  {
     id: 'styleWords',
     type: 'multi',
     max: 3,
     title: 'Words that fit your style (pick up to 3)',
-    options: ['minimal', 'bold', 'classic', 'trendy', 'elegant', 'playful', 'boho'].map((w) => ({
-      value: w,
-      label: w,
-    })),
+    options: [
+      ...['minimal', 'bold', 'classic', 'trendy', 'elegant', 'playful', 'boho'].map((w) => ({ value: w, label: w, genders: ['female' as Gender] })),
+      ...['classic', 'smart', 'traditional', 'minimal', 'bold', 'trendy', 'sporty'].map((w) => ({ value: w, label: w, genders: ['male' as Gender] })),
+    ],
   },
   {
     id: 'neverWear',

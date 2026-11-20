@@ -65,7 +65,7 @@ async function rulesFor(origin: string): Promise<Rules> {
   if (!p) {
     p = (async () => {
       try {
-        const res = await fetch(`${origin}/robots.txt`, { headers: { 'user-agent': USER_AGENT } });
+        const res = await fetch(`${origin}/robots.txt`, { headers: { 'user-agent': USER_AGENT }, signal: AbortSignal.timeout(10_000) });
         return res.ok ? parseRobots(await res.text()) : parseRobots('');
       } catch {
         return parseRobots('');
@@ -109,6 +109,17 @@ export async function politeGet(url: string, { retries = 5, minDelayMs = 0 } = {
       await sleep(Math.max(e.waitMs ?? 0, Math.min(MAX_BACKOFF_MS, rules.delayMs * 2 ** (attempt + 1))));
     }
   }
+}
+
+/**
+ * One quick request while a visitor waits (the live stock check): robots.txt still applies, but there
+ * is no queue, no retry and no redirect following, and it gives up after a few seconds.
+ */
+export async function quickGet(url: string, timeoutMs = 4000): Promise<{ status: number; body: string }> {
+  const u = new URL(url);
+  if (!allowedBy(await rulesFor(u.origin), u.pathname + u.search)) throw new Disallowed(`robots.txt disallows ${u.pathname}`);
+  const res = await fetch(url, { headers: { 'user-agent': USER_AGENT, accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
+  return { status: res.status, body: res.status === 200 ? await res.text() : '' };
 }
 
 export const locs = (xml: string) => [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map((m) => m[1]);

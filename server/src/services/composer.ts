@@ -199,8 +199,8 @@ function prepare(catalog: Product[], profile: Profile, req: ComposeRequest, now:
   return { season, maxBudget, occasion, bySlot, strictBottoms, mains };
 }
 
-/** The stylist dresses women only: its looks never use the men's waistcoat or accessory slots. */
-export type AccessorySlot = Exclude<Slot, 'main' | 'waistcoat' | 'accessory'>;
+/** The stylist dresses women only, without a layer: its looks never use the waistcoat, accessory or layer slots. */
+export type AccessorySlot = Exclude<Slot, 'main' | 'waistcoat' | 'accessory' | 'layer'>;
 
 export interface StylingOption {
   main: Product;

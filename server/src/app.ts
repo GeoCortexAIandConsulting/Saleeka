@@ -14,10 +14,12 @@ import { answersSchema, buildProfile, currentAnswers, publicQuestions, updatePro
 import { createRound, submitRound, MAX_ROUNDS, QUICK_TAGS } from './services/rounds.js';
 import { handleChat, swapLookItem } from './services/chat.js';
 import { hydrateLooks, uid } from './services/looks.js';
+import { createCatalogStore } from './services/catalogStore.js';
+import { liveStock } from './services/liveStock.js';
 import { ALL_SLOTS, OCCASIONS, SLOTS, slotsFor, type AvatarFace, type Occasion, type Product } from './types.js';
 import { seedIfEmpty } from './data/seedDb.js';
-import { deletePreviews, previewDesign, previewEnabled } from './services/preview.js';
-import { challengeCovers, showcase, FEED_SORTS, listNotifications, markNotificationsRead, playerProfile, unreadCount, weekly } from './services/game.js';
+import { BODY_SIZES, deletePreviews, previewDesign, previewEnabled } from './services/preview.js';
+import { challengeCovers, liveCounts, showcase, FEED_SORTS, listNotifications, markNotificationsRead, playerProfile, unreadCount, weekly } from './services/game.js';
 import { addComment, deleteComment, deleteGameData, feed, feedLook, gamePieces, PIECE_SORTS, gameItems, isPublished, listComments, publishDesign, hydrateDesigns, listChallenges, loadChallenge, nextDesignToRate, publicChallenge, seedChallenges, submitDesign, voteDesign } from './services/game.js';
 
 export interface AppOptions {
@@ -25,13 +27,18 @@ export interface AppOptions {
   llm: Llm;
   /** Disable rate limits (tests) */
   rateLimit?: boolean;
-  /** How long the Studio keeps the catalogue in memory (default: 1 minute; off when rate limits are off, as in tests) */
+  /** How often the in-memory catalogue checks for a new catalog sync (default: 1 minute; 0 = read the database every time, as in tests) */
   catalogCacheMs?: number;
 }
 
 export async function createApp({ repos, llm, rateLimit: limit = true, catalogCacheMs }: AppOptions) {
   await seedIfEmpty(repos);
   await seedChallenges(repos);
+  // In-stock pieces, held in memory and swapped in after each catalog sync (see catalogStore.ts).
+  const catalogTtl = catalogCacheMs ?? (limit ? 60_000 : 0);
+  const store = createCatalogStore(repos, { checkMs: catalogTtl });
+  const catalog = () => store.get();
+  if (catalogTtl) catalog().catch((e) => console.warn('Could not load the catalogue at start-up:', e)); // warm it before the first visitor
   const app = express();
   if (config.isProd) app.set('trust proxy', 1);
   app.use(helmet());
@@ -57,6 +64,10 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   const voteLimiter = limit
     ? rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Slow down a little: try again in a minute.' } })
     : (_q: Request, _s: Response, n: NextFunction) => n();
+  // Live stock checks ask the brands' shops: a few per look page, never a flood.
+  const liveLimiter = limit
+    ? rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many stock checks: try again in a minute.' } })
+    : (_req: Request, _res: Response, next: NextFunction) => next();
   const commentLimiter = limit
     ? rateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Slow down a little: try commenting again in a few minutes.' } })
     : (_q: Request, _s: Response, n: NextFunction) => n();
@@ -261,7 +272,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   /* ------------------------------ rounds ------------------------------ */
   app.post('/api/rounds', requireAuth, async (_req, res) => {
     const profile = await loadProfile(uidOf(res));
-    const { round, looks } = await createRound(repos, profile, llm);
+    const { round, looks } = await createRound(repos, profile, llm, catalog);
     res.json({ round: { id: round.id, index: round.index, max: MAX_ROUNDS }, looks, quickTags: QUICK_TAGS });
   });
 
@@ -287,7 +298,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   app.post('/api/chat', requireAuth, chatLimiter, async (req, res) => {
     const body = z.object({ message: z.string().trim().min(1).max(500), sessionId: z.string().optional() }).parse(req.body);
     const profile = await loadProfile(uidOf(res));
-    res.json(await handleChat(repos, llm, profile, body.message, body.sessionId));
+    res.json(await handleChat(repos, llm, profile, body.message, body.sessionId, catalog));
   });
 
   /* ------------------------------- looks ------------------------------ */
@@ -314,22 +325,10 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   app.post('/api/looks/:id/swap', requireAuth, async (req, res) => {
     const { slot } = z.object({ slot: z.enum(SLOTS as [string, ...string[]]) }).parse(req.body);
     const profile = await loadProfile(uidOf(res));
-    res.json({ look: await swapLookItem(repos, profile, String(req.params.id), slot as (typeof SLOTS)[number]) });
+    res.json({ look: await swapLookItem(repos, profile, String(req.params.id), slot as (typeof SLOTS)[number], catalog) });
   });
 
   /* -------------------------------- game -------------------------------- */
-  // The Studio filters the whole catalogue on every search and page: keep it in memory briefly.
-  const catalogTtl = catalogCacheMs ?? (limit ? 60_000 : 0);
-  let catalogCache: { at: number; list: Promise<Product[]> } | null = null;
-  const catalog = () => {
-    if (!catalogCache || Date.now() - catalogCache.at > catalogTtl) {
-      const list = repos.products.find();
-      list.catch(() => (catalogCache = null));
-      catalogCache = { at: Date.now(), list };
-    }
-    return catalogCache.list;
-  };
-
   // Challenge cover photos, for every open challenge: worked out from the whole catalogue, so kept
   // for 10 minutes (a newly asked-for challenge gets its cover within that time).
   let coverCache: { at: number; covers: Promise<Map<string, string>> } | null = null;
@@ -374,7 +373,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
       let challenge = null;
       for (const id of ids) challenge ??= await repos.challenges.findOne({ id });
       if (!challenge) throw new AppError(404, 'No demo challenge');
-      const all = gameItems(await repos.products.find(), challenge);
+      const all = gameItems(await catalog(), challenge);
       // A first impression: clean names (no "Rts | …" catalogue codes or broken characters), no abayas
       // standing in for a dupatta, and prices most shoppers recognise.
       const showcase = (p: Product) => /^[A-Za-z][A-Za-z0-9 '’&.-]{2,40}$/.test(p.title) && !/abaya/i.test(p.title) && p.price <= 60000;
@@ -419,7 +418,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
 
   const designSchema = z.object({
     challengeId: z.string().min(1).max(80),
-    items: z.array(z.object({ slot: z.enum(ALL_SLOTS as [string, ...string[]]), productId: z.string().max(200) })).min(1).max(SLOTS.length),
+    items: z.array(z.object({ slot: z.enum(ALL_SLOTS as [string, ...string[]]), productId: z.string().max(200) })).min(1).max(ALL_SLOTS.length),
     /** true: keep it private to preview on the model first, then publish */
     draft: z.boolean().optional(),
   });
@@ -442,8 +441,8 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   });
 
   app.post('/api/game/designs/:id/preview', requireAuth, previewLimiter, async (req, res) => {
-    const { anotherModel } = z.object({ anotherModel: z.boolean().optional() }).parse(req.body ?? {});
-    const design = await previewDesign(repos, uidOf(res), String(req.params.id), { anotherModel });
+    const { anotherModel, size } = z.object({ anotherModel: z.boolean().optional(), size: z.enum(BODY_SIZES).optional() }).parse(req.body ?? {});
+    const design = await previewDesign(repos, uidOf(res), String(req.params.id), { anotherModel, size });
     res.json({ design: (await hydrateDesigns(repos, [design]))[0] });
   });
 
@@ -485,6 +484,15 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     const sort = z.enum(FEED_SORTS).optional().parse(req.query.sort);
     const occasion = z.enum(OCCASIONS as [Occasion, ...Occasion[]]).optional().parse(req.query.occasion || undefined);
     res.json(await feed(repos, uidOf(res), before, { gender, occasion }, sort));
+  });
+
+  // Live like and comment counts for the looks on screen (polled by the Runway and look pages).
+  // Public like the look pages; before /api/feed/:id so "counts" is not read as a look id.
+  const countsQuery = z.object({ ids: z.string().min(1).max(3000).transform((s) => [...new Set(s.split(',').map((x) => x.trim()).filter(Boolean))].slice(0, 60)) });
+  app.get('/api/feed/counts', async (req, res) => {
+    const { ids } = countsQuery.parse(req.query);
+    res.set('Cache-Control', 'no-store');
+    res.json({ counts: await liveCounts(repos, ids) });
   });
 
   // One look, for its own page on the Runway. Shared links open it for anyone, read-only.
@@ -532,6 +540,16 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   app.delete('/api/game/comments/:id', requireAuth, async (req, res) => {
     await deleteComment(repos, uidOf(res), String(req.params.id));
     res.json({ deleted: true });
+  });
+
+  /* ------------------------------- live stock ------------------------------- */
+  // Is it still in stock, at what price? Asked of the brand's shop for the pieces of one look, when
+  // someone is about to buy. Public, like the look pages that use it.
+  const liveQuery = z.object({ ids: z.string().min(1).max(1200).transform((s) => s.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 12)) });
+  app.get('/api/products/live', liveLimiter, async (req, res) => {
+    const { ids } = liveQuery.parse(req.query);
+    res.set('Cache-Control', 'private, max-age=300');
+    res.json({ products: await liveStock(repos, ids, store) });
   });
 
   /* ----------------------- click-out tracking + partners ----------------------- */

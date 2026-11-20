@@ -42,18 +42,8 @@ describe('resolveBodyShape', () => {
     expect(resolveBodyShape({ gender: 'female', bodyShape: 'oval' })).toBeUndefined();
   });
 
-  it('asks gender and height before body shape', () => {
+  it('is no longer asked (older answers still resolve as above)', () => {
     const ids = QUESTIONS.map((q) => q.id);
-    expect(ids.indexOf('gender')).toBeLessThan(ids.indexOf('bodyShape'));
-    expect(ids.indexOf('heightCm')).toBeLessThan(ids.indexOf('bodyShape'));
-  });
-
-  it('only asks the follow-ups after "not sure"', () => {
-    const shape = QUESTIONS.find((q) => q.id === 'bodyShape')!;
-    expect(shape.options!.some((o) => o.value === 'not-sure')).toBe(true);
-    expect(shape.options!.some((o) => o.value === 'prefer-not')).toBe(false);
-    for (const id of ['shapeShoulders', 'shapeWaist']) {
-      expect(QUESTIONS.find((q) => q.id === id)!.showIf).toEqual({ id: 'bodyShape', value: 'not-sure' });
-    }
+    for (const id of ['bodyShape', 'shapeShoulders', 'shapeWaist']) expect(ids).not.toContain(id);
   });
 });

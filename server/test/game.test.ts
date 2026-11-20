@@ -68,7 +68,7 @@ describe("men's styling", () => {
 
     // A men's challenge offers men's slots and only menswear; a women's one never offers menswear.
     const men = (await agent.get('/api/game/challenges/seed-men-eid-white/items')).body.items;
-    expect(Object.keys(men).sort()).toEqual(['accessory', 'bottom', 'footwear', 'main', 'waistcoat']);
+    expect(Object.keys(men).sort()).toEqual(['accessory', 'bottom', 'footwear', 'layer', 'main', 'waistcoat']);
     const all = await repos.products.find();
     const isMale = new Set(all.filter((p) => p.gender === 'male').map((p) => p.id));
     for (const list of Object.values(men) as any[][]) expect(list.every((p) => isMale.has(p.id))).toBe(true);
@@ -111,7 +111,7 @@ describe("men's styling", () => {
     const res = await request(demoApp).get('/api/demo/look?gender=male');
     expect(res.status).toBe(200);
     expect(res.body.challenge).toMatchObject({ gender: 'male', occasion: 'eid' });
-    expect(Object.keys(res.body.items).sort()).toEqual(['accessory', 'bottom', 'footwear', 'main', 'waistcoat']);
+    expect(Object.keys(res.body.items).sort()).toEqual(['accessory', 'bottom', 'footwear', 'layer', 'main', 'waistcoat']);
     expect(res.body.items.main.every((p: any) => p.gender === 'male')).toBe(true);
   });
 });

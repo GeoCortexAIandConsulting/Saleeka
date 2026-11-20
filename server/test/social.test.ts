@@ -141,3 +141,36 @@ describe('shared links', () => {
     expect((await visitor.get('/api/feed')).status).toBe(401);
   });
 });
+
+describe('live counts and private notifications', () => {
+  it('shows anyone live like and comment counts; only the designer gets the notifications', async () => {
+    const sara = await player('Sara Ahmed');
+    const omar = await player('Omar');
+    const zainab = await player('Zainab');
+    const look = await publishLook(sara);
+    const anon = request.agent(app); // no account
+    const counts = async () => (await anon.get(`/api/feed/counts?ids=${look},nope`)).body.counts;
+
+    // Public: no account needed; unknown ids are left out.
+    expect(await counts()).toEqual({ [look]: { likes: 0, comments: 0 } });
+    await omar.post(`/api/game/designs/${look}/vote`).send({ up: true });
+    await zainab.post(`/api/game/designs/${look}/vote`).send({ up: true });
+    await omar.post(`/api/game/designs/${look}/comments`).send({ text: 'Lovely colours' });
+    expect(await counts()).toEqual({ [look]: { likes: 2, comments: 1 } });
+
+    // Sara is told; the others see nothing of hers, and nobody can read someone else's list.
+    const mine = (await sara.get('/api/notifications')).body;
+    expect(mine.unread).toBe(3);
+    expect(mine.notifications.map((n: any) => n.type).sort()).toEqual(['comment', 'like', 'like']);
+    for (const other of [omar, zainab]) {
+      expect((await other.get('/api/notifications/unread')).body.unread).toBe(0);
+      expect((await other.get('/api/notifications')).body.notifications).toEqual([]);
+    }
+    expect((await anon.get('/api/notifications')).status).toBe(401);
+
+    // A draft's counts are never shown.
+    const items = (await repos.designs.findOne({ id: look }))!.items;
+    const draft = (await sara.post('/api/game/designs').send({ challengeId: C, items, draft: true })).body.design;
+    expect((await anon.get(`/api/feed/counts?ids=${draft.id}`)).body.counts).toEqual({});
+  });
+});

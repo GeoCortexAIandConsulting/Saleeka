@@ -13,7 +13,7 @@ import { GoogleAuth } from 'google-auth-library';
 import { config } from '../config.js';
 import type { Repos } from '../db/index.js';
 import { AppError } from '../errors.js';
-import type { Design, Gender, PreviewImage, Product, Slot } from '../types.js';
+import type { Design, Gender, Occasion, PreviewImage, Product, Slot } from '../types.js';
 import { genderOf } from './game.js';
 import { uid } from './looks.js';
 
@@ -34,12 +34,13 @@ const PIECE: Record<Slot, string> = {
   jewelry: 'the jewellery',
   waistcoat: 'the waistcoat (worn over the outfit)',
   accessory: 'the accessory',
+  layer: 'the coat / jacket / sweater (worn open or closed over the outfit)',
 };
 
 /**
- * Our models: several women and men with different faces, skin tones, hair and smiles, so the
- * Runway is not one face in every look. Each is made once (on first use) and kept, so a model
- * looks the same in every look she or he wears.
+ * Our models: several beautiful, fair-complexioned women and handsome men with different faces, hair
+ * and smiles, so the Runway is not one face in every look. Each is made once per body size (on
+ * first use) and kept, so a model looks the same in every look she or he wears.
  */
 interface ModelSpec {
   /** Who they are: face, skin, hair */
@@ -50,45 +51,104 @@ interface ModelSpec {
 
 const MODELS: Record<Gender, ModelSpec[]> = {
   female: [
-    { person: 'a South Asian woman in her mid-20s with a warm wheatish complexion, oval face, long dark brown hair in a soft low bun', mood: 'a warm, natural smile, one hand lightly resting at her side' },
-    { person: 'a South Asian woman in her late 20s with a fair complexion, round face, shoulder-length wavy black hair worn open', mood: 'a bright, happy smile showing a little of her teeth, relaxed posture' },
-    { person: 'a South Asian woman in her early 30s with a medium brown complexion, high cheekbones, straight black hair in a sleek side braid', mood: 'a confident, gentle closed-mouth smile, standing tall, one hand near her waist' },
-    { person: 'a South Asian woman in her early 20s with a dusky complexion, heart-shaped face, curly dark hair tied in a half-up style', mood: 'a cheerful, friendly smile, head tilted very slightly' },
-    { person: 'a South Asian woman in her mid-30s with a light olive complexion, soft square jaw, dark chestnut hair in a neat middle-parted low bun', mood: 'a serene, elegant soft smile, hands relaxed' },
-    { person: 'a South Asian woman in her late 20s with a deep brown complexion, almond eyes, long straight black hair over one shoulder', mood: 'a joyful, open smile, natural relaxed stance' },
+    { person: 'a beautiful South Asian woman in her mid-20s with a fair, glowing complexion, soft oval face, large dark eyes, long dark brown hair in a soft low bun', mood: 'a warm, natural smile, one hand lightly resting at her side' },
+    { person: 'a beautiful South Asian woman in her late 20s with a fair complexion, round face, defined brows, shoulder-length glossy black waves worn open', mood: 'a bright, happy smile showing a little of her teeth, relaxed posture' },
+    { person: 'a beautiful South Asian woman in her early 30s with a fair complexion, high cheekbones, almond eyes, straight black hair in a sleek side braid', mood: 'a confident, gentle closed-mouth smile, standing tall, one hand near her waist' },
+    { person: 'a beautiful South Asian woman in her early 20s with a fair, rosy complexion, heart-shaped face, soft curly dark hair in a half-up style', mood: 'a cheerful, friendly smile, head tilted very slightly' },
+    { person: 'a beautiful South Asian woman in her mid-30s with a fair, peachy complexion, elegant features, dark chestnut hair in a neat middle-parted low bun', mood: 'a serene, elegant soft smile, hands relaxed' },
+    { person: 'a beautiful South Asian woman in her late 20s with a fair complexion, light brown eyes, long straight black hair over one shoulder', mood: 'a joyful, open smile, natural relaxed stance' },
   ],
   male: [
-    { person: 'a South Asian man in his late 20s with a wheatish complexion, neatly trimmed short beard, short black hair styled back', mood: 'a warm, easy smile, standing relaxed' },
-    { person: 'a South Asian man in his mid-30s with a medium brown complexion, clean-shaven, short side-parted hair', mood: 'a confident closed-mouth smile, hands relaxed at his sides' },
-    { person: 'a South Asian man in his early 20s with a fair complexion, light stubble, thick wavy dark hair', mood: 'a friendly, bright smile, natural stance' },
-    { person: 'a South Asian man in his early 40s with a dusky complexion, full neatly groomed beard, short greying black hair', mood: 'a calm, dignified gentle smile, standing tall' },
+    { person: 'a handsome South Asian man in his late 20s with a fair complexion, neatly trimmed short beard, short black hair styled back', mood: 'a warm, easy smile, standing relaxed' },
+    { person: 'a handsome South Asian man in his mid-30s with a fair complexion, clean-shaven, strong jaw, short side-parted hair', mood: 'a confident closed-mouth smile, hands relaxed at his sides' },
+    { person: 'a handsome South Asian man in his early 20s with a fair complexion, light stubble, thick wavy dark hair', mood: 'a friendly, bright smile, natural stance' },
+    { person: 'a handsome South Asian man in his early 40s with a fair complexion, full neatly groomed beard, short black hair greying at the temples', mood: 'a calm, dignified gentle smile, standing tall' },
   ],
 };
 
+/** The body size the player wants to see the look on. */
+export const BODY_SIZES = ['small', 'medium', 'large', 'plus'] as const;
+export type BodySize = (typeof BODY_SIZES)[number];
+
+const BUILD: Record<Gender, Record<BodySize, string>> = {
+  female: {
+    small: 'a slim, petite build (around UK size 6 to 8)',
+    medium: 'a healthy average build (around UK size 10 to 12)',
+    large: 'a fuller, curvy build with a soft tummy and fuller hips and arms (around UK size 14 to 16)',
+    plus: 'a plus-size, full-figured build with a fuller bust, tummy, hips and arms (around UK size 18 to 22)',
+  },
+  male: {
+    small: 'a slim, lean build (chest around 36 inches)',
+    medium: 'a fit average build (chest around 40 inches)',
+    large: 'a broad, heavier build with a fuller middle (chest around 44 inches)',
+    plus: 'a big, plus-size build with a full chest and belly (chest around 48 inches or more)',
+  },
+};
+
+/** The occasion in the words the image model gets. */
+const OCCASION_WORDS: Record<Occasion, string> = {
+  casual: 'a relaxed everyday outing',
+  university: 'a day at university',
+  office: 'the office',
+  eid: 'Eid',
+  mehndi: 'a mehndi',
+  baraat: 'a baraat',
+  walima: 'a walima',
+  party: 'an evening party',
+};
+
+/** Model photos are versioned: a new cast gets new photos and new previews instead of reusing old ones. */
+const CAST = 'v2';
+
 export const modelCount = (g: Gender) => MODELS[g].length;
 
-function basePrompt(gender: Gender, m: ModelSpec): string {
+function basePrompt(gender: Gender, m: ModelSpec, size: BodySize): string {
   const they = gender === 'male' ? 'He' : 'She';
+  const full = size === 'large' || size === 'plus';
   return (
-    `A full-length, head-to-toe studio fashion photograph of ${m.person}, standing and facing the camera with ${m.mood}. ` +
-    `Lively, natural and approachable, like a real fashion campaign: eyes bright, expression genuine, never blank or stiff. ` +
+    `A full-length, head-to-toe studio fashion photograph of ${m.person}, with ${BUILD[gender][size]}, standing and facing the camera with ${m.mood}. ` +
+    `Beautiful and camera-ready like a real fashion campaign: flawless natural skin, ${gender === 'male' ? 'neat grooming' : 'soft polished makeup'}, eyes bright, expression genuine, never blank or stiff. ` +
+    (full ? `${they} looks confident and attractive at this size; the body is shown honestly and flatteringly, not slimmed. ` : '') +
     `${they} wears a plain, fitted, light grey full-length kurta with matching plain trousers, and is barefoot. ` +
     'No jewellery, no rings, no watch, no accessories. Plain light grey seamless background, soft flattering studio light. ' +
     'Portrait 3:4, whole body visible with space above the head and below the feet.'
   );
 }
 
-function lookPrompt(gender: Gender, mood: string, slots: Slot[], included: { bottom: boolean; dupatta: boolean }): string {
+/** How a stylist would put the pieces together, slot by slot. */
+const STYLING: Partial<Record<Slot, string>> = {
+  dupatta: 'Drape the dupatta gracefully, over one shoulder or both, falling neatly, never bunched.',
+  layer: 'Wear the coat or sweater over the outfit, open or neatly closed, with the outfit still visible underneath; the sleeves sit naturally.',
+  waistcoat: 'Wear the waistcoat buttoned over the kurta, the kurta hem showing below it.',
+  bag: 'Carry the bag naturally in one hand or on the shoulder, in view.',
+  jewelry: 'Wear the jewellery where it belongs (earrings on the ears, a necklace at the neck), clearly visible.',
+  footwear: 'The shoes are fully visible on the feet.',
+  accessory: 'Show the accessory worn the way it is meant to be (a watch on the wrist, a shawl on the shoulders).',
+};
+
+/** How menswear is worn: crisp and well fitted, the way a groom's stylist would send him out. */
+const MENSWEAR = [
+  'The kurta or shirt is crisp and pressed, the collar and cuffs neat; a kurta falls straight to its own length over the shalwar or trousers.',
+  'A western shirt is neatly tucked in; trousers sit at the waist with a clean break over the shoes.',
+  'A sherwani or prince coat is fully buttoned to the collar.',
+  'He wears no watch, ring, chain or cap unless one is shown, and his hair and beard are neatly groomed.',
+];
+
+function lookPrompt(gender: Gender, mood: string, slots: Slot[], included: { bottom: boolean; dupatta: boolean }, size: BodySize, occasion?: string): string {
   const who = gender === 'male' ? 'man' : 'woman';
+  const their = gender === 'male' ? 'his' : 'her';
   const notes = [
     included.bottom && 'The outfit photo includes its own trousers/bottom: use those.',
-    included.dupatta && 'The outfit photo includes its own dupatta: drape that one over the shoulders.',
-    slots.includes('dupatta') && 'Drape the dupatta over the shoulders.',
+    included.dupatta && 'The outfit photo includes its own dupatta: drape that one gracefully over the shoulders.',
+    ...slots.map((s) => STYLING[s]),
+    ...(gender === 'male' ? MENSWEAR : []),
     !slots.includes('jewelry') && gender === 'female' && 'She wears no jewellery at all.',
     !slots.includes('bag') && gender === 'female' && 'She carries no bag.',
   ].filter(Boolean);
   return [
-    `The first image is our model. Dress this exact ${who} — same face, hair, body, expression, pose, background and lighting — in exactly the pieces shown in the other images, worn together as one complete look.`,
+    `The first image is our model. Dress this exact ${who} — same face, complexion, hair, body size and shape, expression, pose, background and lighting — in exactly the pieces shown in the other images.`,
+    `Style them together as one complete, polished look${occasion ? ` for ${occasion}` : ''}, the way a fashion stylist would: the pieces coordinated, sitting well on the body, proportions balanced, nothing crumpled or mismatched.`,
+    `Fit every garment naturally to ${their} ${BUILD[gender][size].replace(/^an? /, '')}: true to this body size, neither slimmed nor enlarged.`,
     'Replace all of the model’s current clothing. Use the product photos only for the garments and accessories: ignore any other person, face, pose or background in them.',
     'Keep every piece true to its photo: the same colours, prints, embroidery, borders, lace and cut.',
     ...notes,
@@ -154,11 +214,11 @@ async function productPhoto(p: Product): Promise<{ mimeType: string; data: strin
 }
 
 /** One of our model photos: made on first use, then kept. */
-async function baseModel(repos: Repos, gender: Gender, variant: number): Promise<PreviewImage> {
-  const id = `base-${gender}-${variant}`;
+async function baseModel(repos: Repos, gender: Gender, variant: number, size: BodySize): Promise<PreviewImage> {
+  const id = `base-${CAST}-${gender}-${variant}-${size}`;
   const existing = await repos.previews.findOne({ id });
   if (existing) return existing;
-  const img = await callGemini([{ text: basePrompt(gender, MODELS[gender][variant]) }]);
+  const img = await callGemini([{ text: basePrompt(gender, MODELS[gender][variant], size) }]);
   return repos.previews.upsert({ id, key: id, mime: img.mime, data: img.data, at: new Date().toISOString() });
 }
 
@@ -172,7 +232,7 @@ function firstModel(userId: string, items: Design['items'], n: number): number {
  * Makes (or reuses) the preview of a player's draft look and attaches it to the draft.
  * Products come from the catalogue by the design's ids, so only checked pieces are sent.
  */
-export async function previewDesign(repos: Repos, userId: string, designId: string, opts: { anotherModel?: boolean } = {}): Promise<Design> {
+export async function previewDesign(repos: Repos, userId: string, designId: string, opts: { anotherModel?: boolean; size?: BodySize } = {}): Promise<Design> {
   if (!previewEnabled()) throw new AppError(404, 'The preview is not switched on');
   const d = await repos.designs.findOne({ id: designId, userId });
   if (!d) throw new AppError(404, 'Design not found');
@@ -183,9 +243,11 @@ export async function previewDesign(repos: Repos, userId: string, designId: stri
   const n = modelCount(gender);
   const shown = opts.anotherModel && d.previewId ? await repos.previews.findOne({ id: d.previewId }) : null;
   const variant = shown?.variant !== undefined ? (shown.variant + 1) % n : firstModel(userId, d.items, n);
+  // The body size the player picked; "another model" keeps the size already shown.
+  const size: BodySize = opts.size ?? (shown?.size as BodySize | undefined) ?? 'medium';
 
   const key = createHash('sha256')
-    .update([userId, gender, config.preview.model, `model=${variant}`, ...d.items.map((i) => `${i.slot}=${i.productId}`).sort()].join('|'))
+    .update([userId, gender, config.preview.model, `cast=${CAST}`, `model=${variant}`, `size=${size}`, ...d.items.map((i) => `${i.slot}=${i.productId}`).sort()].join('|'))
     .digest('hex');
   const cached = await repos.previews.findOne({ key });
   if (cached) return (await repos.designs.update({ id: d.id }, { previewId: cached.id }))!;
@@ -202,7 +264,7 @@ export async function previewDesign(repos: Repos, userId: string, designId: stri
   const main = pieces.find((x) => x.slot === 'main')?.product;
   if (!main) throw new AppError(400, 'Choose an outfit first');
 
-  const [base, photos] = await Promise.all([baseModel(repos, gender, variant), Promise.all(pieces.map((x) => productPhoto(x.product)))]);
+  const [base, photos] = await Promise.all([baseModel(repos, gender, variant, size), Promise.all(pieces.map((x) => productPhoto(x.product)))]);
   const parts: unknown[] = [{ text: 'Our model:' }, { inlineData: { mimeType: base.mime, data: base.data } }];
   pieces.forEach((x, i) => {
     parts.push({ text: `Piece ${i + 1} — ${PIECE[x.slot]}: ${x.product.title}` });
@@ -214,12 +276,14 @@ export async function previewDesign(repos: Repos, userId: string, designId: stri
       MODELS[gender][variant].mood,
       pieces.map((x) => x.slot),
       { bottom: Boolean(main.includesBottom), dupatta: Boolean(main.includesDupatta) },
+      size,
+      challenge ? OCCASION_WORDS[challenge.occasion] : undefined,
     ),
   });
 
   const img = await callGemini(parts);
   const at = new Date().toISOString();
-  const saved = await repos.previews.insert({ id: uid(), userId, key, variant, mime: img.mime, data: img.data, at });
+  const saved = await repos.previews.insert({ id: uid(), userId, key, variant, size, mime: img.mime, data: img.data, at });
   await repos.events.insert({ id: uid(), userId, type: 'preview', lookId: d.id, at });
   return (await repos.designs.update({ id: d.id }, { previewId: saved.id }))!;
 }

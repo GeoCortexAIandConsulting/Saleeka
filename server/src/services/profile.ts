@@ -16,7 +16,9 @@ export const answersSchema = z.object({
   shapeShoulders: z.enum(['narrower', 'same', 'wider']).optional(),
   shapeWaist: z.enum(['defined', 'straight', 'fuller']).optional(),
   coverage: z.enum(['1', '2', '3', '4', '5']),
-  dupatta: z.enum(['always', 'formal', 'never', 'hijab']),
+  /** No longer asked: women get a dupatta with formal looks, men never (older answers are kept) */
+  dupatta: z.enum(['always', 'formal', 'never', 'hijab']).optional(),
+  /** 'eastern' and/or 'western' (older answers may hold specific cuts) */
   silhouettes: arr(3),
   colorsLiked: arr(5),
   /** pick = chose colours, any = no preference, complexion = used the complexion helper */
@@ -24,7 +26,8 @@ export const answersSchema = z.object({
   undertone: z.enum(['warm', 'cool', 'neutral']).optional(),
   skinDepth: z.enum(['light', 'medium', 'deep']).optional(),
   colorsAvoided: arr(4),
-  embellishment: z.enum(['minimal', 'medium', 'heavy']),
+  /** No longer asked: medium unless an older answer says otherwise */
+  embellishment: z.enum(['minimal', 'medium', 'heavy']).default('medium'),
   seasons: arr(5),
   fabrics: arr(4),
   occasions: arr(4),
@@ -81,6 +84,9 @@ const EMBELL_PRESETS: Record<Answers['embellishment'], Record<string, number>> =
  * so picking them still shapes recommendations.
  */
 const SILHOUETTE_NEAR: Record<string, Record<string, number>> = {
+  // The quiz now asks only eastern and/or western: each lends weight to the cuts the catalogue tags.
+  eastern: { straight: 1, 'a-line': 1, angrakha: 1, maxi: 1, 'shirt-trouser': 0.6, kurta: 1, 'shalwar kameez': 1, sherwani: 1, 'prince coat': 1 },
+  western: { western: 1, fusion: 0.8, shirt: 1, polo: 1, tee: 1, suit: 1 },
   'shalwar-kameez': { straight: 0.8 },
   peplum: { 'a-line': 0.5, western: 0.3 },
   sharara: { 'a-line': 0.5, angrakha: 0.3 },
@@ -98,6 +104,10 @@ const STYLE_NUDGES: Record<string, Record<string, number>> = {
   elegant: { 'fabric:silk': 0.6, 'fabric:chiffon': 0.5, 'family:jewel': 0.4 },
   playful: { 'family:pastel': 0.6, 'family:warm': 0.4 },
   boho: { 'family:earth': 0.7, 'silhouette:maxi': 0.5 },
+  // Men's words
+  smart: { 'silhouette:western-shirt': 0.5, 'silhouette:suit': 0.5, 'family:neutral': 0.3 },
+  traditional: { 'silhouette:shalwar-kameez': 0.6, 'silhouette:waistcoat': 0.4, 'silhouette:khussa': 0.3 },
+  sporty: { 'silhouette:polo-jeans': 0.7, 'silhouette:sneaker': 0.5 },
 };
 
 export function validateAnswerOptions(a: Answers, brands: Brand[]): string | null {
@@ -115,6 +125,7 @@ export function validateAnswerOptions(a: Answers, brands: Brand[]): string | nul
     if (bad) return `Unknown ${label}: ${bad}`;
   }
   if (a.occasions.length === 0) return 'Pick at least one occasion';
+  if (a.silhouettes.length === 0) return 'Pick eastern, western or both';
   if (a.colorsLiked.length === 0 && a.colorMode === 'pick') return 'Pick at least one colour you like, or choose “Any colour”';
   if (a.colorMode === 'complexion' && (!a.undertone || !a.skinDepth)) return 'Finish the complexion check, or pick colours yourself';
   const overlap = a.colorsLiked.find((c) => a.colorsAvoided.includes(c));
@@ -153,7 +164,8 @@ export function buildProfile(userId: string, a: Answers, brands: Brand[], now = 
   }
 
   const band = BUDGET_BANDS[a.budget];
-  const hijab = a.dupatta === 'hijab';
+  const dupatta = a.gender === 'male' ? 'never' : (a.dupatta ?? 'formal');
+  const hijab = dupatta === 'hijab';
   const coverage = Number(a.coverage);
 
   const profile: Profile = {
@@ -164,7 +176,7 @@ export function buildProfile(userId: string, a: Answers, brands: Brand[], now = 
     weightKg: a.weightKg,
     bodyShape: resolveBodyShape(a),
     coverage,
-    dupatta: hijab ? 'always' : (a.dupatta as Profile['dupatta']),
+    dupatta: hijab ? 'always' : (dupatta as Profile['dupatta']),
     hijab,
     silhouettes: a.silhouettes,
     colorsLiked,
@@ -228,12 +240,11 @@ const COVERAGE_WORDS = ['', 'relaxed', 'balanced', 'modest', 'very modest', 'ful
 
 export function summarize(p: Profile, brandName: (id: string) => string = (x) => x): string {
   const colors = p.colorsLiked.length ? p.colorsLiked.slice(0, 3).join(', ') : 'any colour';
-  const sil = p.silhouettes.length ? p.silhouettes.join(' and ') : 'a range of cuts';
+  const sil = p.silhouettes.length ? p.silhouettes.join(' and ') + ' wear' : 'a range of cuts';
   const parts = [
     `You prefer ${COVERAGE_WORDS[p.coverage]} coverage`,
     `love ${colors}`,
     `lean towards ${sil}`,
-    `like ${p.embellishment} embellishment`,
     `shop mostly for ${p.occasions.slice(0, 3).join(', ')}`,
     `with a full-outfit budget up to Rs. ${p.budgetMax.toLocaleString('en-PK')}`,
   ];

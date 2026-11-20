@@ -23,9 +23,9 @@ const KIDS = /\b(boys?|kids?|girls?|baby|babies|infants?|junior|teens?|toddlers?
 /* ----------------------------------------- Menswear ----------------------------------------- */
 
 const NOT_MENSWEAR = /fragrance|perfume|parfum|body ?(?:mist|spray)|attar|cologne|deodorant|cosmetic|grooming|skin ?care|lotion|candle|bed ?sheet|towel|cushion|home|gift ?card|face ?mask|socks?\b|underwear|boxers?|briefs?|trunks|\bvests?\b|under ?shirt|nightwear|sleepwear|night ?suit|loungewear|swim|keychain|sunglass|handkerchief|bags?\b|backpack|fabric glossary|sample/i;
-const M_OUTERWEAR = /\b(jacket|coat|cardigan|sweater|jumper|hoodie|sweat ?shirt|blazer|gilet|puffer|pullover|parka|windbreaker)\b/i;
+const M_OUTERWEAR = /\b(jackets?|coats?|overcoats?|cardigans?|sweaters?|jumpers?|hoodies?|sweat ?shirts?|blazers?|gilets?|puffers?|pullovers?|parkas?|windbreakers?|shackets?|bombers?|fleece)\b/i;
 const M_ACCESSORY = /\b(rings?|watch(?:es)?|belts?|wallets?|card ?holders?|cuff ?links?|ties?|bow ?ties?|pocket ?squares?|caps?|topi|prayer ?caps?|shawls?|mufflers?|scarf|scarves)\b/i;
-const M_SHOE = /\b(shoes?|khussa[sy]?|peshawari|chappals?|kolhapuri|norozi|sandals?|slippers?|slides?|sneakers?|trainers?|loafers?|moccasins?|derby|oxfords?|brogues?|boots?|footwear)\b/i;
+const M_SHOE = /\b(shoes?|khussa[sy]?|peshawari|chappals?|kolhapuri|norozi|sandals?|slippers?|slides?|sneakers?|trainers?|loafers?|moccasins?|derby|oxfords?|brogues?|boots?(?![- ]?cut)|footwear)\b/i;
 const M_WAISTCOAT = /\b(waist ?coats?|nehru jacket|vest coat)\b/i;
 const M_SUIT_WESTERN = /\b(tuxedo|[23][- ]?(?:pc|pcs|piece) suit|suiting|two[- ]piece suit|three[- ]piece suit)\b/i;
 const M_MAIN = /\b(kurta|kurtas|jubbas?|kameez|shalwar ?kameez|kurta ?(?:shalwar|pajama|pyjama|trouser)|sherwani|prince ?coat|achkan|unstitched|suit|shirts?|polos?|t-?shirts?|tees?|henley)\b/i;
@@ -33,8 +33,11 @@ const M_BOTTOM = /\b(shalwar|salwar|pajamas?|pyjamas?|trousers?|pants|chinos?|je
 
 /** The men's slot of an item, from its title first and its catalog labels second. */
 function menSlot(title: string, meta: string): Slot | null {
-  // Jackets, hoodies and sweaters are not part of a look here (a sherwani, prince coat or waistcoat is).
-  if (has(M_OUTERWEAR, title) && !has(/sherwani|prince ?coat|achkan|waist ?coat|nehru/i, title)) return null;
+  // Jackets, coats, hoodies and sweaters are the look's layer (a sherwani or prince coat is the outfit,
+  // a waistcoat its own slot). A blazer sold as part of a suit is the suit.
+  // A kurta "with jacket" stays the outfit. ("Sweat Shirt" holds the word "shirt".)
+  const garment = has(M_MAIN, title.replace(new RegExp(M_OUTERWEAR.source, 'gi'), ' '));
+  if (has(M_OUTERWEAR, title) && !garment && !has(/sherwani|prince ?coat|achkan|waist ?coat|nehru/i, title) && !has(M_SUIT_WESTERN, title)) return 'layer';
   const classify = (t: string): Slot | null =>
     has(M_SHOE, t) ? 'footwear'
     : has(M_WAISTCOAT, t) ? 'waistcoat'
@@ -100,6 +103,8 @@ function menProduct(base: Omit<Product, 'title' | 'silhouette' | 'modesty'>, raw
   } else if (base.slot === 'waistcoat') {
     silhouette = 'waistcoat';
     occasions = [...M_FORMAL, 'office'];
+  } else if (base.slot === 'layer') {
+    ({ silhouette, occasions } = layerKind(raw.title, meta, raw.productType));
   } else if (base.slot === 'footwear') {
     silhouette = kindOf([[/khussa|peshawari|chappal|kolhapuri|norozi/i, 'khussa'], [/sneaker|trainer/i, 'sneaker'], [/sandal|slide|slipper/i, 'sandal']], 'loafer');
     occasions =
@@ -126,15 +131,52 @@ function menProduct(base: Omit<Product, 'title' | 'silhouette' | 'modesty'>, raw
     includesBottom,
     // Coverage rules are for the women's looks; menswear always passes them.
     modesty: 5,
-    seasons: base.slot === 'main' || base.slot === 'bottom' || base.slot === 'waistcoat' ? base.seasons : ['all'],
+    seasons: base.slot === 'layer' ? layerSeasons(silhouette, base.seasons) : base.slot === 'main' || base.slot === 'bottom' || base.slot === 'waistcoat' ? base.seasons : ['all'],
   };
 }
+
+/* ------------------------------------ Layers (both) ------------------------------------ */
+
+/**
+ * What kind of layer a coat, jacket or sweater is, and where it can be worn. Only the title and product
+ * type decide how dressy it is: descriptions say things like "dress it up for formal or casual".
+ */
+function layerKind(title: string, meta: string, productType: string): { silhouette: string; occasions: Occasion[] } {
+  const pairs: Array<[RegExp, string]> = [
+    [/blazer/i, 'blazer'],
+    [/puffer|quilted|padded|parka/i, 'puffer'],
+    [/hoodie|hooded/i, 'hoodie'],
+    [/sweat ?shirt|fleece/i, 'sweatshirt'],
+    [/cardigan|shrug/i, 'cardigan'],
+    [/sweater|jumper|pullover|knit/i, 'sweater'],
+    [/shacket|denim jacket/i, 'shacket'],
+    [/cape|poncho/i, 'cape'],
+    [/\b(?:over)?coats?\b|trench/i, 'coat'],
+    [/gilet|waist ?coat/i, 'gilet'],
+  ];
+  const silhouette = pairs.find(([re]) => re.test(title))?.[1] ?? pairs.find(([re]) => re.test(meta))?.[1] ?? 'jacket';
+  const any: Occasion[] = ['casual', 'university', 'office', 'eid', 'mehndi', 'baraat', 'walima', 'party'];
+  // A hoodie or puffer stays casual, even embroidered; a velvet or embellished coat dresses up.
+  const dressy = /velvet|embroider|embellish|sequin|brocade|jamawar|formal|festive|wedding|tux/i.test(`${title} ${productType}`);
+  const occasions: Occasion[] =
+    ['hoodie', 'sweatshirt', 'puffer', 'shacket'].includes(silhouette) ? ['casual', 'university']
+    : dressy ? ['eid', 'mehndi', 'baraat', 'walima', 'party', 'office']
+    : ['blazer', 'coat'].includes(silhouette) ? any
+    : ['casual', 'university', 'office', 'eid'];
+  return { silhouette, occasions };
+}
+
+/** Warm layers are for winter; a blazer, shacket or gilet goes with any season unless labelled. */
+function layerSeasons(silhouette: string, labelled: Product['seasons']): Product['seasons'] {
+  if (!labelled.includes('all')) return labelled;
+  return ['blazer', 'shacket', 'gilet'].includes(silhouette) ? ['all'] : ['winter'];
+}
 const NOT_CLOTHING = /wallet|wristlet|card ?holder|coin ?purse|passport|fragrance|perfume|parfum|body ?mist|attar|cologne|deodorant|cosmetic|make-?up|lipstick|nail|skin ?care|lotion|candle|bed ?sheet|duvet|quilt|comforter|pillow|cushion|towel|curtain|table ?(?:cover|runner|mat)|napkin|home|gift ?card|face ?mask|socks?\b|underwear|lingerie|\bbra\b|panty|nightwear|sleepwear|night ?suit|pyjama|pajama|loungewear|swim|keychain|charm|hair ?(?:clip|band|tie)|scrunchie|sunglass|watch|belt\b|cap\b|hat\b|gloves?|mittens?|umbrella|fabric glossary|sample/i;
-const OUTERWEAR = /\b(jacket|coat|cardigan|sweater|jumper|hoodie|sweat ?shirt|blazer|waistcoat|gilet|puffer|pullover|shrug|poncho|cape)\b/i;
+const OUTERWEAR = /\b(jackets?|coats?|overcoats?|cardigans?|sweaters?|jumpers?|hoodies?|sweat ?shirts?|blazers?|waist ?coats?|gilets?|puffers?|pullovers?|shrugs?|ponchos?|capes?|shackets?|bombers?|parkas?)\b/i;
 
 const JEWELRY = /\b(earrings?|jhumk[ae]y?s?|jhumka|necklaces?|bangles?|bracelets?|rings?|tikka|anklets?|chokers?|pendants?|jewell?ery|jewelry)\b/i;
 const BAG = /\b(bags?|clutch(?:es)?|totes?|potli|purses?|wallets?|backpacks?|cross ?body|pouch(?:es)?|handbags?|satchel)\b/i;
-const SHOE = /\b(shoes?|khussa[sy]?|khussay|heels?|sandals?|slippers?|chappals?|kolhapuri|sneakers?|trainers?|pumps?|loafers?|mules?|flats?|wedges?|boots?|peshawari|slides?|footwear|ballerinas?|stilettos?)\b/i;
+const SHOE = /\b(shoes?|khussa[sy]?|khussay|heels?|sandals?|slippers?|chappals?|kolhapuri|sneakers?|trainers?|pumps?|loafers?|mules?|flats?|wedges?|boots?(?![- ]?cut)|peshawari|slides?|footwear|ballerinas?|stilettos?)\b/i;
 const DRAPE = /\b(dupatta|shawl|stole|scarf|scarves|hijab|wrap|chaddar|chadar)\b/i;
 const BOTTOM = /\b(trousers?|pants?|shalwar|salwar|palazzo|culottes?|cigarette|jeans|tights|leggings?|jeggings|skirt|capri|bottoms?|sharara|gharara|churidar|joggers?)\b/i;
 const SET = /\b([23]|two|three)[- ]?(?:pc|pcs|piece|pieces)\b|\bsuit\b|\bco-?ord\b|\bset\b/i;
@@ -193,8 +235,11 @@ function occasionsOf(head: string, t: string, emb: number): Occasion[] {
 }
 
 function seasonsOf(fabric: string, t: string): Product['seasons'] {
-  if (/winter|khaddar|karandi|velvet|wool|shawl/i.test(t) || ['khaddar', 'velvet'].includes(fabric)) return ['winter'];
-  if (/summer|lawn|voile/i.test(t) || fabric === 'lawn') return ['summer'];
+  // Collection labels first ("Winter Collection", "Summer 2025", Breakout's "26-WIN" / "26-SUM").
+  if (/\bwinter\b|\b\d{2}-win\b/i.test(t)) return ['winter'];
+  if (/\bsummer\b|\b\d{2}-sum\b/i.test(t)) return ['summer'];
+  if (/khaddar|khadar|karandi|velvet|wool|shawl|cottel|marina|fleece|tweed|flannel|corduroy|pashmina|cashmere|thermal|quilted/i.test(t) || ['khaddar', 'velvet'].includes(fabric)) return ['winter'];
+  if (/lawn|voile/i.test(t) || fabric === 'lawn') return ['summer'];
   return ['all'];
 }
 
@@ -225,8 +270,14 @@ function genderOf(head: string, src: BrandSource): Gender | null {
   const men = has(MEN, head);
   if (women && !men) return 'female';
   if (men && !women) return 'male';
+  // Brands that dress both rarely label what only women buy here (Almas files clutches and stoles
+  // under "Accessories"): handbags, clutches, stoles, heels and the like are women's.
+  if (src.sells === 'both' && has(WOMENS_KIND, head)) return 'female';
   return src.sells === 'male' ? 'male' : src.sells === 'both' ? null : 'female';
 }
+const WOMENS_KIND = /\b(clutch(?:es)?|hand ?bags?|purses?|totes?|tote bags?|hobo|mini bags?|shoulder bags?|stoles?|dupattas?|heels?|mules?|khussas?|earrings?|bangles?|necklaces?)\b/i;
+
+const validDate = (s?: string) => Boolean(s) && Number.isFinite(Date.parse(s!));
 
 export function normalize(raw: RawItem, src: BrandSource, checkedAt: string): Normalized {
   const meta = [raw.productType, ...raw.tags, ...raw.categories].join(' | ');
@@ -254,7 +305,7 @@ export function normalize(raw: RawItem, src: BrandSource, checkedAt: string): No
   const cleanMeta = meta.replace(/\b(?:flat|upto|up to|sale|off)\s*\d+\s*%?(?:\s*off)?/gi, ' ');
   const MAIN_WORDS = /unstitched|stitched|kurta|kameez|kurti|shirt|dress|frock|maxi|angrakha|tunic|\btop\b|blouse|tee\b|t-shirt|suit|peshwas|gown|lehenga|anarkali|co-?ord/i;
   const classify = (t: string): Slot | null =>
-    has(JEWELRY, t) ? 'jewelry'
+    has(JEWELRY, t) && !has(BAG, t) && !has(SHOE, t) ? 'jewelry' // a "D-Ring Tote Bag" is a bag, a "Ring Loafer" a shoe
     : has(SHOE, t) ? 'footwear'
     : has(BAG, t) ? 'bag'
     : has(SET, t) || has(MAIN_WORDS, t) ? 'main'
@@ -264,22 +315,27 @@ export function normalize(raw: RawItem, src: BrandSource, checkedAt: string): No
   // In a title, garment words beat accessory words ("Suit with Clutch" is a suit).
   // Jewellery is never an outfit: "Ring Set", "Jewelry Set", "Choker Necklace set", or a "Set" a
   // brand files under Jewellery is jewellery, unless the title also names a garment.
-  const titleJewel = !has(MAIN_WORDS, raw.title) && (has(JEWELRY, raw.title) || (has(SET, raw.title) && has(JEWELRY, raw.productType)));
+  // A bag is a bag whatever its hardware ("D-Ring Tote Bag").
+  const titleJewel = !has(MAIN_WORDS, raw.title) && !has(BAG, raw.title) && !has(SHOE, raw.title) && (has(JEWELRY, raw.title) || (has(SET, raw.title) && has(JEWELRY, raw.productType)));
   const titleSlot = titleJewel ? 'jewelry' : has(SET, raw.title) || has(MAIN_WORDS, raw.title) ? 'main' : classify(raw.title);
   let slot: Slot;
   const fromMeta = classify(cleanMeta);
+  // Coats, jackets and sweaters are worn over the outfit: the look's layer. A suit or kurta that comes
+  // with a jacket ("3 Piece Suit with Jacket") stays the outfit, and a "Puffer Bag" stays a bag.
+  // ("Sweatshirt" holds the word "shirt".)
+  // A coat or sweater named after its collar or trim ("Scarf-Neck Coat", "Shawl-Collar Sweater") is a layer, not a dupatta.
+  const womensLayer = (titleSlot === null || titleSlot === 'main' || titleSlot === 'dupatta') && has(OUTERWEAR, raw.title) && !has(MAIN_WORDS, raw.title.replace(new RegExp(OUTERWEAR.source, 'gi'), ' '));
   if (male) {
     const m = menSlot(raw.title, cleanMeta);
     if (!m) return { ok: false, reason: 'not-clothing' };
-    if (m === 'main' && has(M_OUTERWEAR, raw.title) && !has(/sherwani|prince ?coat|achkan|waist ?coat/i, raw.title)) return { ok: false, reason: 'not-clothing' };
     slot = m;
-  } else if (titleSlot) slot = titleSlot;
+  } else if (womensLayer) slot = 'layer';
+  else if (titleSlot) slot = titleSlot;
   else if (fromMeta) slot = fromMeta;
   else if (has(/unstitched|ready to wear|pret|eastern|lawn|khaddar/i, cleanMeta)) slot = 'main';
   // Some brands title items by collection name only ("ROYAL ELEGANCE-02"); a piece list with a shirt is an outfit.
   else if (pieceLine(/shirt|kameez|kurta|front|back|sleeves/, raw.text)) slot = 'main';
   else return { ok: false, reason: 'not-clothing' };
-  if (!male && slot === 'main' && has(OUTERWEAR, raw.title)) return { ok: false, reason: 'not-clothing' };
 
   // Colour: the brand's colour option, then "Colour:" lines, then the title, tags and URL.
   const optionColors = Object.entries(raw.options).filter(([k]) => /colou?r|shade/i.test(k)).flatMap(([, v]) => v);
@@ -328,6 +384,7 @@ export function normalize(raw: RawItem, src: BrandSource, checkedAt: string): No
     url: raw.url,
     images: raw.images.slice(0, 6),
     checkedAt,
+    ...(validDate(raw.createdAt) ? { arrivedAt: new Date(raw.createdAt!).toISOString() } : {}),
     demo: false,
   };
 
@@ -372,6 +429,14 @@ export function normalize(raw: RawItem, src: BrandSource, checkedAt: string): No
       stitched: !/unstitched/i.test(all) && !byLength,
     };
     return { ok: true, product };
+  }
+
+  if (slot === 'layer') {
+    const { silhouette, occasions } = layerKind(raw.title, meta, raw.productType);
+    return {
+      ok: true,
+      product: { ...base, title: displayTitle(raw.title, colors[0], fabric, silhouette), silhouette, occasions, seasons: layerSeasons(silhouette, base.seasons), modesty: 5 },
+    };
   }
 
   if (slot === 'bottom') {

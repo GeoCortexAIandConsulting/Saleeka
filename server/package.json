@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test:mongo": "vitest run test/mongo.contract.test.ts",
     "catalog:fetch": "tsx src/catalog/fetch.ts",
-    "catalog:import": "tsx src/catalog/import.ts"
+    "catalog:import": "tsx src/catalog/import.ts",
+    "catalog:sync": "tsx src/catalog/fetch.ts && tsx src/catalog/import.ts"
   },
   "keywords": [],
   "author": "",

@@ -28,9 +28,12 @@ export const KNOWN_BRANDS: KnownBrand[] = [
   { id: 'asim-jofa', name: 'Asim Jofa', genders: ['female'] },
   { id: 'bareeze', name: 'Bareeze', genders: ['female'] },
   { id: 'generation', name: 'Generation', genders: ['female'] },
+  { id: 'zeen', name: 'Zeen', genders: ['female'] },
+  { id: 'stylo', name: 'Stylo', genders: ['female'] },
+  { id: 'almas', name: 'Almas', genders: ['female', 'male'] },
   // Men only
   { id: 'bonanza-satrangi', name: 'Bonanza Satrangi', genders: ['male'] },
-  { id: 'breakout', name: 'Breakout', genders: ['male'] },
+  { id: 'breakout', name: 'Breakout', genders: ['female', 'male'] },
   { id: 'cambridge', name: 'Cambridge', genders: ['male'] },
   { id: 'diners', name: 'Diners', genders: ['male'] },
   { id: 'edenrobe', name: 'Edenrobe', genders: ['male'] },
@@ -42,5 +45,5 @@ export const KNOWN_BRANDS: KnownBrand[] = [
 /** Men see their list in this order (the brands shared with women included). */
 export const MEN_ORDER = [
   'junaid-jamshed', 'bonanza-satrangi', 'outfitters', 'breakout', 'cambridge', 'diners', 'gul-ahmed',
-  'nishat-linen', 'sapphire', 'edenrobe', 'charcoal', 'khaadi', 'limelight', 'deepak-perwani', 'amir-adnan',
+  'nishat-linen', 'sapphire', 'edenrobe', 'charcoal', 'almas', 'khaadi', 'limelight', 'deepak-perwani', 'amir-adnan',
 ];

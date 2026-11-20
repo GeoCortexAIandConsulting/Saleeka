@@ -51,7 +51,8 @@ describe('challenge of the week', () => {
     const b = await player('Danish');
     const list = (await a.get('/api/game/challenges')).body.challenges;
     const [women] = featuredIds();
-    expect(list[0]).toMatchObject({ id: women, featured: true });
+    // The Studio lists women's and men's challenges apart: each list starts with its featured one.
+    expect(list.filter((c: any) => c.gender === 'female')[0]).toMatchObject({ id: women, featured: true });
     expect(list.filter((c: any) => c.featured)).toHaveLength(2);
 
     const quiet = await publish(a, women);

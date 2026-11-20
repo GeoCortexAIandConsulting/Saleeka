@@ -9,6 +9,7 @@ import type {
   DesignComment,
   PreviewImage,
   AppNotification,
+  CatalogMeta,
   EventRecord,
   Look,
   Product,
@@ -34,6 +35,8 @@ export interface Repos {
   comments: Collection<DesignComment>;
   previews: Collection<PreviewImage>;
   notifications: Collection<AppNotification>;
+  /** Catalog sync status (one document, id 'catalog') */
+  meta: Collection<CatalogMeta>;
   close(): Promise<void>;
 }
 
@@ -53,6 +56,7 @@ export function createMemoryRepos(): Repos {
     comments: new MemoryCollection<DesignComment>(),
     previews: new MemoryCollection<PreviewImage>(),
     notifications: new MemoryCollection<AppNotification>(),
+    meta: new MemoryCollection<CatalogMeta>(),
     close: async () => {},
   };
 }
@@ -74,11 +78,13 @@ export async function createMongoRepos(uri: string, dbName: string): Promise<Rep
     comments: new MongoCollection<DesignComment>(db, 'comments'),
     previews: new MongoCollection<PreviewImage>(db, 'previews'),
     notifications: new MongoCollection<AppNotification>(db, 'notifications'),
+    meta: new MongoCollection<CatalogMeta>(db, 'meta'),
     close: () => client.close(),
   };
   // Indexes that matter from day one.
   await db.collection('users').createIndex({ email: 1 }, { unique: true });
   await db.collection('products').createIndex({ slot: 1, inStock: 1 });
+  await db.collection('products').createIndex({ inStock: 1 }); // the in-memory catalogue loads in-stock pieces only
   await db.collection('looks').createIndex({ userId: 1, saved: 1 });
   await db.collection('events').createIndex({ brandId: 1, type: 1, at: -1 });
   await db.collection('challenges').createIndex({ key: 1 }, { unique: true });

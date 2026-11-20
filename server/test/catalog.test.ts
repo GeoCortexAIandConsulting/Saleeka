@@ -99,6 +99,59 @@ describe('tagging real catalog items', () => {
     expect(reason(raw({ title: 'Black Kurta', variants: [{ title: 'M', price: 0, available: false }] }))).toBe('no-price');
   });
 
+  it('reads shoe-and-bag shops: Almas accessories are women\'s, a coat named after its collar is a layer, a D-ring bag is a bag', () => {
+    const almas: BrandSource = { id: 'almas', name: 'Almas', origin: 'https://example.pk', platform: 'shopify', tier: 'mid', sells: 'both' };
+    const stylo: BrandSource = { id: 'stylo', name: 'Stylo', origin: 'https://example.pk', platform: 'shopify', tier: 'budget' };
+    const tag = (o: Partial<RawItem>, from: BrandSource) => {
+      const n = normalize(raw(o), from, '');
+      if (!n.ok) throw new Error(`dropped: ${n.reason}`);
+      return n.product;
+    };
+    const clutch = tag({ title: 'GALA JEWEL CLUTCH-BLACK', productType: 'Accessories', tags: ['Clutches'] }, almas);
+    expect(clutch).toMatchObject({ slot: 'bag' });
+    expect(clutch.gender).toBeUndefined(); // women's
+    expect(tag({ title: 'D-RING TEXTURED TOTE BAG-COFFEE', productType: 'Accessories', tags: [] }, almas)).toMatchObject({ slot: 'bag' });
+    expect(tag({ title: 'SIENNA WOVEN RING LOAFER-MAROON', productType: 'Women Footwear', tags: [] }, almas)).toMatchObject({ slot: 'footwear' });
+    expect(tag({ title: 'SCARF-NECK BUTTON COAT-COFFEE', productType: 'Women Apparel', tags: ['Women Winter'] }, almas)).toMatchObject({ slot: 'layer', silhouette: 'coat' });
+    expect(tag({ title: 'CLASSIC PIN BUCKLE BELT-COFFEE', productType: 'Accessories', tags: ['Men Belts'] }, almas)).toMatchObject({ slot: 'accessory', gender: 'male' });
+    expect(tag({ title: 'LUCCA PENNY DRIVING MOCCASIN-BLACK', productType: 'Men Footwear', tags: [] }, almas)).toMatchObject({ slot: 'footwear', gender: 'male' });
+    // Stylo: ladies' khussa and clutch are kept; its kids' shoes and lingerie are not.
+    expect(tag({ title: 'Black Leather Khussa For Ladies EC9056', productType: 'Khussa', tags: ['Women Shoes'] }, stylo)).toMatchObject({ slot: 'footwear' });
+    expect(tag({ title: 'Black Formal Clutch For Ladies P24522', productType: 'Clutches', tags: [] }, stylo)).toMatchObject({ slot: 'bag' });
+    const reason = (o: Partial<RawItem>) => (normalize(raw(o), stylo, '') as { reason?: string }).reason;
+    expect(reason({ title: 'Girls Golden Fancy Pumps KD8369', productType: 'Girls', tags: ['Kids shoes'] })).toBe('kids');
+    expect(reason({ title: 'Black Padded Bra For Women LB5344', productType: 'Padded Wireless', tags: [] })).toBe('not-clothing');
+  });
+
+  it('tags women\'s coats, jackets and sweaters as a layer, and reads winter and summer labels', () => {
+    const breakout: BrandSource = { id: 'breakout', name: 'Breakout', origin: 'https://example.pk', platform: 'shopify', tier: 'budget', sells: 'both' };
+    const tag = (o: Partial<RawItem>, from: BrandSource = breakout) => {
+      const n = normalize(raw(o), from, '');
+      if (!n.ok) throw new Error(`dropped: ${n.reason}`);
+      return n.product;
+    };
+    const coat = tag({ title: 'WOOL LONG COAT', productType: 'COAT', tags: ['26-WIN', 'Garments', 'WOMEN'], options: { COLOR: ['Black'] } });
+    expect(coat).toMatchObject({ slot: 'layer', silhouette: 'coat', seasons: ['winter'] });
+    expect(coat.gender).toBeUndefined(); // women's
+    expect(coat.occasions).toContain('walima');
+    const hoodie = tag({ title: 'GRAPHIC CROPPED HOODIE', productType: 'UPPER', tags: ['26-WIN', 'Garments', 'WOMEN'], options: { COLOR: ['Grey'] } });
+    expect(hoodie).toMatchObject({ slot: 'layer', silhouette: 'hoodie' });
+    expect(hoodie.occasions).toEqual(['casual', 'university']);
+    expect(tag({ title: 'OVERSIZED SWEATSHIRT', productType: 'UPPER', tags: ['WOMEN'], options: { COLOR: ['Navy'] } })).toMatchObject({ slot: 'layer', silhouette: 'sweatshirt', seasons: ['winter'] });
+    // A suit that comes with a jacket is still the outfit; Breakout's "26-SUM" is summer.
+    expect(tag({ title: 'Stitched 3 Piece Suit with Jacket', productType: 'Eastern', options: { Color: ['Maroon'] } }, src)).toMatchObject({ slot: 'main' });
+    expect(tag({ title: 'KNITTED BUTTON DOWN TOP', productType: 'KNIT', tags: ['26-SUM', 'WOMEN'], options: { COLOR: ['White'] } })).toMatchObject({ slot: 'main', seasons: ['summer'] });
+    // Zeen files its suits under "Winter Collection" / "Summer 2025"; cottel is a winter fabric.
+    expect(tag({ title: 'UNSTITCHED 3 PIECE PRINTED SUIT', productType: 'Winter Collection', tags: ['Linen', 'Green'] }, src).seasons).toEqual(['winter']);
+    expect(tag({ title: 'UNSTITCHED 2 PIECE PRINTED SUIT', productType: 'Summer 2025', tags: ['Blue'] }, src).seasons).toEqual(['summer']);
+    expect(tag({ title: 'Printed Cottel Suit', productType: 'Eastern', tags: ['Brown'] }, src).seasons).toEqual(['winter']);
+    // "Boot cut" jeans are jeans, not boots.
+    expect(tag({ title: 'Boot Cut Denim', productType: 'BOTTOMS', tags: ['WOMEN'], options: { COLOR: ['Blue'] } })).toMatchObject({ slot: 'bottom' });
+    expect(tag({ title: 'Suede Ankle Boots', productType: 'FOOTWEAR', tags: ['WOMEN'], options: { COLOR: ['Brown'] } })).toMatchObject({ slot: 'footwear' });
+    // Children's coats are left out.
+    expect((normalize(raw({ title: 'GIRLS CONTRAST TRIM ZIPPER HOODIE', productType: 'UPPER', tags: ['GIRLS', 'Kids Top'], options: { COLOR: ['Pink'] } }), breakout, '') as { reason?: string }).reason).toBe('kids');
+  });
+
   it('tags menswear: its gender, slot, kind, whether it brings its bottom, and its occasions', () => {
     const men = (o: Partial<RawItem>, from: BrandSource = src) => {
       const n = normalize(raw(o), from, '');
@@ -120,11 +173,16 @@ describe('tagging real catalog items', () => {
     expect(men({ title: 'Classic Watch', productType: 'Watches', options: { Color: ['Silver'] } }, diners)).toMatchObject({ slot: 'accessory', silhouette: 'watch' });
     expect(men({ title: 'Cotton Trouser', productType: 'Co-Ord Set - Pant', options: { Color: ['Navy'] } }, diners)).toMatchObject({ slot: 'bottom', silhouette: 'trouser' });
     expect(men({ title: 'Pique Polo', productType: 'Polos', options: { Color: ['Navy'] } }, diners).occasions).toEqual(['casual', 'university']);
-    // Not styling: fragrance, undershirts, a sweater
+    // Coats, jackets and sweaters are the look's layer, for winter; a kurta "with jacket" stays the outfit.
+    expect(men({ title: 'Cable Knit Sweater', productType: 'Men Sweaters', options: { Color: ['Grey'] } }, diners)).toMatchObject({ slot: 'layer', silhouette: 'sweater', seasons: ['winter'] });
+    expect(men({ title: 'Quilted Puffer Jacket', productType: 'Jackets', options: { Color: ['Black'] } }, diners)).toMatchObject({ slot: 'layer', silhouette: 'puffer' });
+    expect(men({ title: 'Navy Blazer', productType: 'Blazers', options: { Color: ['Navy'] } }, diners)).toMatchObject({ slot: 'layer', silhouette: 'blazer', seasons: ['all'] });
+    expect(men({ title: 'Embroidered Kurta with Jacket', productType: 'Kurta', options: { Color: ['Maroon'] } }, diners)).toMatchObject({ slot: 'main' });
+    expect(men({ title: 'Two Piece Suit', productType: 'Suits', options: { Color: ['Navy'] } }, diners)).toMatchObject({ slot: 'main', silhouette: 'suit' });
+    // Not styling: fragrance, undershirts
     const reason = (o: Partial<RawItem>, from = diners) => (normalize(raw(o), from, '') as { reason?: string }).reason;
     expect(reason({ title: 'Oud Perfume', productType: 'FRAGRANCE', options: { Color: ['Black'] } })).toBe('not-clothing');
     expect(reason({ title: 'Cotton Vest', productType: 'Innerwear', options: { Color: ['White'] } })).toBe('not-clothing');
-    expect(reason({ title: 'Cable Knit Sweater', productType: 'Men Sweaters', options: { Color: ['Grey'] } })).toBe('not-clothing');
     // A brand that sells to both: an item that does not say whose it is, is left out
     const both: BrandSource = { ...diners, id: 'edenrobe', sells: 'both' };
     expect(reason({ title: 'Printed Kurta', productType: 'Kurta', options: { Color: ['Blue'] } }, both)).toBe('unlabelled');
