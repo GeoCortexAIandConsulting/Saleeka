@@ -17,7 +17,7 @@ import type { Design, Gender, PreviewImage, Product, Slot } from '../types.js';
 import { genderOf } from './game.js';
 import { uid } from './looks.js';
 
-export const previewEnabled = () => Boolean(config.preview.project);
+export const previewEnabled = () => Boolean(config.preview.project || config.preview.apiKey);
 
 const DAY = 24 * 60 * 60 * 1000;
 const TIMEOUT_MS = 120_000;
@@ -98,18 +98,28 @@ function lookPrompt(gender: Gender, mood: string, slots: Slot[], included: { bot
 }
 
 async function callGemini(parts: unknown[]): Promise<{ mime: string; data: string }> {
-  const { project, location, model } = config.preview;
+  const { project, location, model, apiKey } = config.preview;
   const host = location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
-  let token: string | null | undefined;
-  try {
-    token = await auth.getAccessToken();
-  } catch (e) {
-    console.warn('AI preview: Google sign-in failed:', (e as Error).message);
-    throw new AppError(503, 'The preview is not available right now.');
+  let url: string;
+  let headers: Record<string, string>;
+  if (apiKey) {
+    // An API key carries its own project (and billing), so no gcloud sign-in is needed on this computer.
+    url = `https://${host}/v1/publishers/google/models/${model}:generateContent`;
+    headers = { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' };
+  } else {
+    let token: string | null | undefined;
+    try {
+      token = await auth.getAccessToken();
+    } catch (e) {
+      console.warn('AI preview: Google sign-in failed (set GOOGLE_API_KEY in server/.env, or run gcloud auth application-default login):', (e as Error).message);
+      throw new AppError(503, 'The preview is not available right now.');
+    }
+    url = `https://${host}/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:generateContent`;
+    headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'x-goog-user-project': project };
   }
-  const res = await fetch(`https://${host}/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:generateContent`, {
+  const res = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'x-goog-user-project': project },
+    headers,
     body: JSON.stringify({
       contents: [{ role: 'user', parts }],
       generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '3:4', imageSize: '1K' } },

@@ -18,9 +18,11 @@ export const config = {
     /** Slow local models need longer than a hosted one; past this, the rule composer takes over. */
     styleTimeoutMs: Number(process.env.LLM_STYLE_TIMEOUT_MS) || 25000,
   },
-  /** AI preview of a Studio look on a model (Gemini on Vertex AI). Off while the project is empty. */
+  /** AI preview of a Studio look on a model (Gemini on Vertex AI). Off while both project and API key are empty. */
   preview: {
     project: process.env.GOOGLE_CLOUD_PROJECT ?? '',
+    /** A Google Cloud API key restricted to the Vertex AI API. When set, it is used instead of a gcloud sign-in. */
+    apiKey: process.env.GOOGLE_API_KEY ?? '',
     location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
     model: process.env.PREVIEW_MODEL || 'gemini-3-pro-image',
     /** New images a player may generate per 24 hours (a look already previewed is free). */

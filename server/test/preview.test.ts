@@ -12,7 +12,7 @@ import { RulesLlm } from '../src/services/llm.js';
 const PNG = Buffer.from('fake-png').toString('base64');
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
-const gemini: Array<{ parts: any[] }> = [];
+const gemini: Array<{ parts: any[]; url: string; headers: Record<string, string> }> = [];
 const realFetch = globalThis.fetch;
 const saved = { ...config.preview };
 
@@ -24,7 +24,7 @@ beforeAll(async () => {
     const u = String(url);
     if (u.startsWith('https://cdn.example/')) return new Response(Buffer.from('photo'), { headers: { 'content-type': 'image/jpeg' } });
     if (u.includes('aiplatform.googleapis.com')) {
-      gemini.push({ parts: JSON.parse(init.body).contents[0].parts });
+      gemini.push({ parts: JSON.parse(init.body).contents[0].parts, url: u, headers: init.headers });
       return Response.json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: PNG } }] } }] });
     }
     return realFetch(url, init);
@@ -129,5 +129,20 @@ describe('AI look preview', () => {
     expect((await repos.previews.find({ userId })).length).toBe(1);
     expect((await agent.delete('/api/me')).status).toBe(200);
     expect(await repos.previews.find({ userId })).toHaveLength(0);
+  });
+
+  it('uses GOOGLE_API_KEY instead of a gcloud sign-in when one is set', async () => {
+    Object.assign(config.preview, { project: '', apiKey: 'test-key', dailyLimit: 10 });
+    gemini.length = 0;
+    const { agent, design } = await draftLook();
+    expect((await agent.get('/api/game/preview')).body).toEqual({ enabled: true });
+    expect((await agent.post(`/api/game/designs/${design.id}/preview`)).status).toBe(200);
+    expect(gemini.length).toBeGreaterThan(0);
+    for (const call of gemini) {
+      expect(call.url).toBe(`https://aiplatform.googleapis.com/v1/publishers/google/models/${config.preview.model}:generateContent`);
+      expect(call.headers['x-goog-api-key']).toBe('test-key');
+      expect(call.headers.Authorization).toBeUndefined();
+    }
+    config.preview.apiKey = '';
   });
 });

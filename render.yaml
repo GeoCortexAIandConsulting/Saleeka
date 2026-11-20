@@ -30,6 +30,9 @@ services:
         value: https://saleeqa-web.onrender.com
       - key: LLM_PROVIDER
         value: rules
+      # AI look preview: a Google Cloud API key restricted to the Vertex AI API (leave empty to hide it).
+      - key: GOOGLE_API_KEY
+        sync: false
 
   # Next.js web app (web/)
   - type: web
