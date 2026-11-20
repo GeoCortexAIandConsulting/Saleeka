@@ -7,6 +7,7 @@ import { toast } from '@/components/Toaster';
 import WeeklyBanner from '@/components/WeeklyBanner';
 import { api } from '@/lib/api';
 import { useRequireUser } from '@/lib/useMe';
+import { useLiveCounts, withCounts } from '@/lib/useLiveCounts';
 import type { FeedLook, Gender } from '@/lib/types';
 
 /**
@@ -98,6 +99,8 @@ export default function Runway() {
   }
 
   const update = (l: FeedLook) => setLooks((ls) => ls?.map((x) => (x.id === l.id ? l : x)) ?? ls);
+  // Likes and comments update live while the Runway is open.
+  useLiveCounts(looks?.map((l) => l.id) ?? [], (counts) => setLooks((ls) => ls?.map((l) => withCounts(l, counts)) ?? ls));
 
   if (!me) return <Header />;
 

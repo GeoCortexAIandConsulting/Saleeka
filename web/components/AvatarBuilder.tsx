@@ -96,7 +96,8 @@ export default function AvatarBuilder({
     }
   }
 
-  const missing = [!heightCm && 'height', !weightKg && 'weight', !bodyShape && 'body shape'].filter(Boolean) as string[];
+  // Body shape is no longer asked: the avatar uses an average shape unless an older answer gave one.
+  const missing = [!heightCm && 'height', !weightKg && 'weight'].filter(Boolean) as string[];
 
   return (
     <div>

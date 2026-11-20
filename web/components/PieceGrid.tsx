@@ -28,9 +28,17 @@ const SMALL: Range[] = [
 ];
 const SORTS: Array<{ id: PieceSort; label: string }> = [
   { id: 'best', label: 'Best match' },
+  { id: 'new', label: 'New in' },
   { id: 'price-asc', label: 'Price: low to high' },
   { id: 'price-desc', label: 'Price: high to low' },
 ];
+
+/** Arrived on the brand's site in the last two weeks (the server uses the same window). */
+const NEW_DAYS = 14;
+const isNew = (p: Product) => {
+  const at = p.arrivedAt ? Date.parse(p.arrivedAt) : NaN;
+  return Date.now() - at < NEW_DAYS * 86_400_000 && at <= Date.now();
+};
 
 interface Props {
   challengeId: string;
@@ -59,6 +67,7 @@ function Card({ group, selected, onPick, onRemove, main }: { group: PieceGroup; 
         ) : (
           <div className="aspect-[3/4] w-full" style={{ background: p.hex }} role="img" aria-label={p.colors.join(' and ')} />
         )}
+        {group.variants.some(isNew) && <span className="absolute left-2 top-2 rounded-full bg-plum px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm">New in</span>}
         <div className="px-2.5 pt-2.5">
           <div className="line-clamp-2 text-xs font-medium capitalize">{p.title}</div>
           <div className="mt-0.5 truncate text-[11px] text-ink/65">{p.brandName}</div>
@@ -132,7 +141,7 @@ function Card({ group, selected, onPick, onRemove, main }: { group: PieceGroup; 
 }
 
 export default function PieceGrid({ challengeId, slot, selected, onPick, onRemove }: Props) {
-  const ranges = ['main', 'bottom', 'dupatta', 'waistcoat'].includes(slot) ? CLOTHES : SMALL;
+  const ranges = ['main', 'bottom', 'dupatta', 'waistcoat', 'layer'].includes(slot) ? CLOTHES : SMALL;
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
   const [brand, setBrand] = useState('');

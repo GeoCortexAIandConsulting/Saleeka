@@ -29,7 +29,7 @@ export default function NotificationBell() {
 
   useEffect(() => {
     check();
-    const t = setInterval(check, 60_000);
+    const t = setInterval(check, 20_000); // new likes and comments show within 20 seconds
     const onShow = () => document.visibilityState === 'visible' && check();
     document.addEventListener('visibilitychange', onShow);
     return () => {

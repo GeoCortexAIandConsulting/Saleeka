@@ -1,8 +1,11 @@
 export type Gender = 'female' | 'male';
-/** Women's looks: main, bottom, dupatta, footwear, bag, jewelry. Men's: main, bottom, waistcoat, footwear, accessory. */
-export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry' | 'waistcoat' | 'accessory';
-export const WOMEN_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'footwear', 'bag', 'jewelry'];
-export const MEN_SLOTS: Slot[] = ['main', 'bottom', 'waistcoat', 'footwear', 'accessory'];
+/**
+ * Women's Studio looks: main, bottom, dupatta, layer, footwear, bag, jewelry. Men's: main, bottom,
+ * waistcoat, layer, footwear, accessory. The layer is a coat, jacket or sweater worn over the outfit.
+ */
+export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry' | 'waistcoat' | 'accessory' | 'layer';
+export const WOMEN_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry'];
+export const MEN_SLOTS: Slot[] = ['main', 'bottom', 'waistcoat', 'layer', 'footwear', 'accessory'];
 export const slotsFor = (g: Gender | undefined | null): Slot[] => (g === 'male' ? MEN_SLOTS : WOMEN_SLOTS);
 
 export interface Product {
@@ -29,8 +32,12 @@ export interface Product {
   images?: string[];
   /** Sizes in stock on the brand's site */
   sizes?: string[];
+  /** False once the brand's site no longer has it in stock */
+  inStock?: boolean;
   /** When stock and price were last read from the brand's site */
   checkedAt?: string;
+  /** When the piece arrived on the brand's site (for "New in") */
+  arrivedAt?: string;
   url?: string;
   demo?: boolean;
 }
@@ -68,6 +75,10 @@ export interface Question {
   unit?: string;
   showIf?: { id: string; value: string };
   palettes?: Record<string, string[]>;
+  /** Only asked for these genders */
+  genders?: ('female' | 'male')[];
+  /** Help worded for one gender, in place of `help` */
+  helpFor?: Partial<Record<'female' | 'male', string>>;
 }
 
 export interface Me {
@@ -90,6 +101,8 @@ export interface Challenge {
   modest: boolean;
   wantsDupatta: boolean;
   gender: Gender;
+  /** A seasonal brief (only that season's pieces), or null */
+  season?: 'summer' | 'winter' | null;
   /** Made from what shoppers asked the stylist for */
   fromShoppers: boolean;
   /** This week's featured challenge */
@@ -118,7 +131,7 @@ export interface PieceGroup {
   variants: Product[];
 }
 
-export type PieceSort = 'best' | 'price-asc' | 'price-desc';
+export type PieceSort = 'best' | 'new' | 'price-asc' | 'price-desc';
 
 /** A page of the Studio grid for one slot, with what the filters can offer */
 export interface PiecesPage {
@@ -181,4 +194,14 @@ export interface Weekly {
   endsAt: string;
   challenges: Challenge[];
   top: FeedLook[];
+}
+
+/** A piece's stock and price, asked of the brand's shop just now (GET /api/products/live). */
+export interface LiveStock {
+  id: string;
+  /** False when the shop could not be asked */
+  checked: boolean;
+  inStock: boolean;
+  price: number;
+  checkedAt?: string;
 }

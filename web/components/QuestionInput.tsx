@@ -122,9 +122,12 @@ export function optionsFor(q: Question, gender: Gender) {
   });
 }
 
-/** Follow-up questions (showIf) only count when their trigger answer is chosen. */
+/** Follow-up questions (showIf) only count when their trigger answer is chosen; some are asked of one gender only (the dupatta). */
 export const visibleQuestions = (questions: Question[], answers: Answers) =>
-  questions.filter((q) => !q.showIf || answers[q.showIf.id] === q.showIf.value);
+  questions.filter((q) => (!q.showIf || answers[q.showIf.id] === q.showIf.value) && (!q.genders || q.genders.includes(genderOf(answers))));
+
+/** The question's help, in the words for this gender. */
+export const helpOf = (q: Question, answers: Answers) => q.helpFor?.[genderOf(answers)] ?? q.help;
 
 /** Whether a question has an acceptable answer (optional questions always do). */
 export function isAnswered(q: Question, answers: Answers) {

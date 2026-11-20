@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import Header from '@/components/Header';
 import LookCard from '@/components/LookCard';
@@ -49,9 +50,13 @@ export default function Rounds() {
     }
   }, []);
 
+  // The rounds show women's looks; a man who opens this page goes to the Studio instead.
+  const router = useRouter();
+  const isMan = me?.gender === 'male';
   useEffect(() => {
-    if (me) load();
-  }, [me, load]);
+    if (isMan) router.replace('/studio');
+    else if (me) load();
+  }, [me, isMan, load, router]);
 
   const toggleRank = (id: string) =>
     setRanks((r) => (r.includes(id) ? r.filter((x) => x !== id) : r.length < 3 ? [...r, id] : r));
@@ -77,7 +82,7 @@ export default function Rounds() {
     setBusy(false);
   }
 
-  if (!me) return (<><Header /><main className="p-8 text-center text-ink/65">Loading…</main></>);
+  if (!me || isMan) return (<><Header /><main className="p-8 text-center text-ink/65">Loading…</main></>);
 
   if (finished || (result && result.roundsLeft === 0)) {
     return (

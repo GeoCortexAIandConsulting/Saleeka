@@ -4,23 +4,21 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import Header from '@/components/Header';
 import ProfilePhoto from '@/components/ProfilePhoto';
-import AvatarBuilder from '@/components/AvatarBuilder';
-import { forgetAvatar } from '@/lib/useAvatar';
 import { QuestionInput, answersBody, describeAnswer, isAnswered, visibleQuestions, type Answers } from '@/components/QuestionInput';
 import { api, forgetDevice, signOut } from '@/lib/api';
 import { useRequireUser } from '@/lib/useMe';
 import type { Question } from '@/lib/types';
 
 const SECTIONS: { title: string; ids: string[] }[] = [
-  { title: 'About you', ids: ['gender', 'ageRange', 'heightCm', 'weightKg', 'bodyShape', 'shapeShoulders', 'shapeWaist'] },
-  { title: 'Style', ids: ['coverage', 'dupatta', 'silhouettes', 'embellishment', 'styleWords', 'neverWear'] },
+  { title: 'About you', ids: ['gender', 'ageRange', 'heightCm', 'weightKg'] },
+  { title: 'Style', ids: ['coverage', 'silhouettes', 'styleWords', 'neverWear'] },
   { title: 'Colours', ids: ['colorsLiked', 'colorsAvoided'] },
   { title: 'Seasons & fabrics', ids: ['seasons', 'fabrics'] },
-  { title: 'Shopping', ids: ['occasions', 'budget', 'brandsLiked', 'brandsAvoided', 'footwear'] },
+  { title: 'Shopping', ids: ['occasions', 'budget', 'brandsLiked', 'brandsAvoided'] },
 ];
 
 // Changing one of these can change which other answers apply, so they are saved with all answers.
-const SHAPING = new Set(['gender', 'bodyShape', 'colorsLiked']);
+const SHAPING = new Set(['gender', 'colorsLiked']);
 
 interface ProfileInfo {
   summary: string;
@@ -29,8 +27,6 @@ interface ProfileInfo {
   weightKg?: number;
   bodyShape?: string;
 }
-type BodyInfo = Omit<ProfileInfo, 'summary'>;
-const bodyOf = (p: ProfileInfo): BodyInfo => ({ gender: p.gender, heightCm: p.heightCm, weightKg: p.weightKg, bodyShape: p.bodyShape });
 
 export default function Account() {
   const me = useRequireUser();
@@ -46,8 +42,6 @@ export default function Account() {
   const [name, setName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [photoVersion, setPhotoVersion] = useState<string | null>(null);
-  const [avatarVersion, setAvatarVersion] = useState<string | null>(null);
-  const [body, setBody] = useState<BodyInfo | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -55,14 +49,10 @@ export default function Account() {
     if (!me) return;
     setName(me.user.name);
     setPhotoVersion(me.user.photoVersion ?? null);
-    setAvatarVersion(me.user.avatarVersion ?? null);
     if (!me.hasProfile) return;
     api<{ questions: Question[] }>('/quiz/questions').then((d) => setQuestions(d.questions));
     api<{ answers: Answers }>('/profile/answers').then((d) => setSaved(d.answers));
-    api<{ profile: ProfileInfo }>('/profile').then((d) => {
-      setSummary(d.profile.summary);
-      setBody(bodyOf(d.profile));
-    });
+    api<{ profile: ProfileInfo }>('/profile').then((d) => setSummary(d.profile.summary));
   }, [me]);
 
   const byId = useMemo(() => new Map(questions.map((q) => [q.id, q])), [questions]);
@@ -88,8 +78,6 @@ export default function Account() {
       const out = await api<{ answers: Answers; profile: ProfileInfo }>('/profile/answers', { method: 'PATCH', body: changes });
       setSaved(out.answers);
       setSummary(out.profile.summary);
-      setBody(bodyOf(out.profile));
-      forgetAvatar(); // try-ons pick up the new height, weight, shape or hijab setting
       setEditing(null);
       setJustSaved(q.id);
     } catch (e: any) {
@@ -157,11 +145,12 @@ export default function Account() {
               </div>
               {summary && <p className="mt-4 border-t border-line pt-4 text-sm text-ink/80">{summary}</p>}
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <Link href="/rounds" className="btn btn-ghost">More ranking rounds</Link>
+                {/* The ranking rounds show women's looks (they teach the women's stylist), so men are not offered them. */}
+                {me.gender !== 'male' && <Link href="/rounds" className="btn btn-ghost">More ranking rounds</Link>}
                 {!me.hasProfile && <Link href="/quiz" className="btn btn-primary">Take the quiz</Link>}
               </div>
               <p className="mt-4 text-center text-xs text-ink/65">
-                Your photo and avatar are only shown to you. Complexion selfies are never uploaded.
+                Your photo is only shown to you. Complexion selfies are never uploaded.
               </p>
             </div>
 
@@ -180,22 +169,6 @@ export default function Account() {
           </aside>
 
           <section className="space-y-6">
-            {me.hasProfile && body && (
-              <div className="card">
-                <h2 className="text-lg font-bold">Your 3D avatar</h2>
-                <p className="mb-4 mt-1 text-sm text-ink/70">
-                  Built from your height, weight and body shape, with your face and skin tone from one selfie.
-                </p>
-                <AvatarBuilder
-                  gender={body.gender ?? 'female'}
-                  bodyShape={body.bodyShape}
-                  heightCm={body.heightCm}
-                  weightKg={body.weightKg}
-                  avatarVersion={avatarVersion}
-                  onChange={setAvatarVersion}
-                />
-              </div>
-            )}
             {me.hasProfile && !saved && <p className="text-ink/65">Loading your answers…</p>}
             {saved &&
               SECTIONS.map((sec) => {

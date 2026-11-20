@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
-import { QuestionInput, answersBody, isAnswered, visibleQuestions, type Answers } from '@/components/QuestionInput';
+import { QuestionInput, answersBody, helpOf, isAnswered, visibleQuestions, type Answers } from '@/components/QuestionInput';
 import { api } from '@/lib/api';
 import { useRequireUser } from '@/lib/useMe';
 import type { Question } from '@/lib/types';
@@ -61,7 +61,7 @@ export default function Quiz() {
               <div className="h-full rounded-full bg-plum transition-all" style={{ width: `${pct}%` }} />
             </div>
             <h1 className="text-2xl font-bold sm:text-3xl lg:text-4xl">{q.title}</h1>
-            {q.help && <p className="mt-2 text-sm text-ink/65 lg:text-base">{q.help}</p>}
+            {helpOf(q, answers) && <p className="mt-2 text-sm text-ink/65 lg:text-base">{helpOf(q, answers)}</p>}
             {q.type === 'multi' && q.max && <p className="mt-1 text-xs text-ink/65">Pick up to {q.max}</p>}
           </aside>
 

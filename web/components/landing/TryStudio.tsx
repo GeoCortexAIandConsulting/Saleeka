@@ -234,7 +234,7 @@ export default function TryStudio() {
                         alt=""
                         loading="lazy"
                         referrerPolicy="no-referrer"
-                        className={`aspect-[3/4] w-full ${['main', 'bottom', 'dupatta', 'waistcoat'].includes(active) ? 'object-cover object-top' : 'object-contain p-2'}`}
+                        className={`aspect-[3/4] w-full ${['main', 'bottom', 'dupatta', 'waistcoat', 'layer'].includes(active) ? 'object-cover object-top' : 'object-contain p-2'}`}
                         style={{ background: p.hex }}
                       />
                       <div className="p-2.5">

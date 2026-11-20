@@ -33,6 +33,7 @@ function ChallengeTags({ c }: { c: Challenge }) {
       <Swatches colors={c.colors} />
       {c.modest && <span>Modest</span>}
       {c.wantsDupatta && <span>Dupatta</span>}
+      {c.season && <span>{c.season === 'winter' ? 'Winter pieces only' : 'Summer pieces only'}</span>}
     </div>
   );
 }
@@ -246,6 +247,14 @@ export default function Studio() {
   const [previewing, setPreviewing] = useState(false);
   /** The look just published, to share and open */
   const [published, setPublished] = useState<Design | null>(null);
+  /** The body size the model is shown at (remembered on this device) */
+  const [size, setSize] = useState<BodySize>('medium');
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('saleeqa.previewSize') as BodySize | null;
+      if (saved && BODY_SIZES.some((b) => b.id === saved)) setSize(saved);
+    } catch { /* private window: medium */ }
+  }, []);
 
   useEffect(() => {
     if (me) api<{ enabled: boolean }>('/game/preview').then((r) => setPreviewOn(r.enabled)).catch(() => setPreviewOn(false));
@@ -260,7 +269,7 @@ export default function Studio() {
     try {
       const saved = (await api<{ design: Design }>('/game/designs', { body: { challengeId: challenge.id, items: itemsBody(), draft: true } })).design;
       setDraft(saved);
-      setDraft((await api<{ design: Design }>(`/game/designs/${saved.id}/preview`, { method: 'POST' })).design);
+      setDraft((await api<{ design: Design }>(`/game/designs/${saved.id}/preview`, { body: { size } })).design);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -273,7 +282,25 @@ export default function Studio() {
     setError('');
     setPreviewing(true);
     try {
-      setDraft((await api<{ design: Design }>(`/game/designs/${draft.id}/preview`, { body: { anotherModel: true } })).design);
+      setDraft((await api<{ design: Design }>(`/game/designs/${draft.id}/preview`, { body: { anotherModel: true, size } })).design);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setPreviewing(false);
+  }
+
+  /** Picks the body size; on the preview step, the same look is shown again at that size. */
+  async function pickSize(next: BodySize) {
+    if (next === size || previewing) return;
+    setSize(next);
+    try {
+      localStorage.setItem('saleeqa.previewSize', next);
+    } catch { /* not remembered */ }
+    if (step !== 'preview' || !draft) return;
+    setError('');
+    setPreviewing(true);
+    try {
+      setDraft((await api<{ design: Design }>(`/game/designs/${draft.id}/preview`, { body: { size: next } })).design);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -520,7 +547,8 @@ export default function Studio() {
                     </button>
                   ) : previewOn ? (
                     <>
-                      <button className="btn btn-primary mt-5 w-full" onClick={preview}>✨ Preview on model</button>
+                      <SizePicker size={size} onPick={pickSize} disabled={previewing} />
+                      <button className="btn btn-primary mt-4 w-full" onClick={preview}>✨ Preview on model</button>
                       <p className="mt-2 text-center text-xs text-ink/65">See your look on a model before it goes on the Runway.</p>
                       <button className="mt-2 w-full text-center text-xs text-plum underline-offset-2 hover:underline disabled:opacity-50" disabled={busy} onClick={publish}>
                         {busy ? 'Publishing…' : 'or publish without a preview'}
@@ -544,6 +572,7 @@ export default function Studio() {
                   ) : (
                     <p className="mt-2 text-sm text-ink/70">The preview didn’t work this time. Try again, or publish your look without it.</p>
                   )}
+                  <SizePicker size={size} onPick={pickSize} disabled={previewing || busy} />
                   <div className="mt-4 flex justify-between text-sm">
                     <span>Look total</span>
                     <span className="font-semibold">{rupees(total)}</span>
@@ -741,5 +770,37 @@ export default function Studio() {
         </div>
       )}
     </>
+  );
+}
+
+type BodySize = 'small' | 'medium' | 'large' | 'plus';
+const BODY_SIZES: Array<{ id: BodySize; label: string }> = [
+  { id: 'small', label: 'Small' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'large', label: 'Large' },
+  { id: 'plus', label: 'Plus size' },
+];
+
+/** Which body size the model wears the look at. */
+function SizePicker({ size, onPick, disabled }: { size: BodySize; onPick: (s: BodySize) => void; disabled?: boolean }) {
+  return (
+    <fieldset className="mt-5">
+      <legend className="text-sm font-semibold">Model size</legend>
+      <div className="mt-2 grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="Model size">
+        {BODY_SIZES.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            role="radio"
+            aria-checked={size === b.id}
+            disabled={disabled}
+            onClick={() => onPick(b.id)}
+            className={`chip justify-center !px-1 text-xs disabled:opacity-60 ${size === b.id ? 'chip-on' : ''}`}
+          >
+            {b.label}
+          </button>
+        ))}
+      </div>
+    </fieldset>
   );
 }

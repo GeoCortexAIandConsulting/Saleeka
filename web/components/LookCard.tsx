@@ -16,6 +16,7 @@ const SLOT_LABEL: Record<Slot, string> = {
   jewelry: 'Jewellery',
   waistcoat: 'Waistcoat',
   accessory: 'Accessory',
+  layer: 'Coat / jacket',
 };
 
 export interface LookCardProps {

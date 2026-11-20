@@ -5,7 +5,7 @@ import { slotsFor, type Gender, type Product, type Slot } from '@/lib/types';
  * The Studio's rules for which pieces a look needs, mirroring the server (services/game.ts):
  * an outfit may bring its own bottom (and, for women, its dupatta). Women's looks: outfit, bottom,
  * shoes, and a dupatta when the challenge asks; bag and jewellery optional. Men's: outfit, bottom
- * and shoes; waistcoat and an accessory optional.
+ * and shoes; waistcoat and an accessory optional. Both may add a layer (coat, jacket or sweater).
  */
 
 export const SLOT_NAME: Record<Slot, string> = {
@@ -17,15 +17,17 @@ export const SLOT_NAME: Record<Slot, string> = {
   jewelry: 'Jewellery',
   waistcoat: 'Waistcoat',
   accessory: 'Accessory',
+  layer: 'Coat / jacket',
 };
 
 export function slotStates(main: Product | undefined, c: { gender?: Gender; wantsDupatta: boolean } | null): Partial<Record<Slot, SlotState>> {
   const bottom: SlotState = main?.includesBottom ? 'included' : 'required';
-  if (c?.gender === 'male') return { main: 'required', bottom, waistcoat: 'optional', footwear: 'required', accessory: 'optional' };
+  if (c?.gender === 'male') return { main: 'required', bottom, waistcoat: 'optional', layer: 'optional', footwear: 'required', accessory: 'optional' };
   return {
     main: 'required',
     bottom,
     dupatta: main?.includesDupatta ? 'included' : c?.wantsDupatta ? 'required' : 'optional',
+    layer: 'optional',
     footwear: 'required',
     bag: 'optional',
     jewelry: 'optional',

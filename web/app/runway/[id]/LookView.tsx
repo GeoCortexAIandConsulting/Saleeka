@@ -9,8 +9,9 @@ import ShareButtons from '@/components/ShareButtons';
 import { api, rupees } from '@/lib/api';
 import { SLOT_NAME } from '@/lib/lookRules';
 import { useMaybeUser } from '@/lib/useMe';
+import { useLiveCounts, withCounts } from '@/lib/useLiveCounts';
 import { castVote } from '@/lib/vote';
-import type { FeedLook } from '@/lib/types';
+import type { FeedLook, LiveStock } from '@/lib/types';
 
 /**
  * A look's own page: the look on a model (or its pieces board), every piece to shop with its photo
@@ -36,6 +37,22 @@ export default function LookView({ id }: { id: string }) {
       .then((r) => setLook(r.look))
       .catch((e) => setError(e.message));
   }, [ready, me, id]);
+
+  // Ask each brand's shop whether the pieces are still in stock, and at what price, before anyone buys.
+  const [live, setLive] = useState<Record<string, LiveStock>>({});
+  const pieceIds = look?.items.map((i) => i.product.id).join(',') ?? '';
+  useEffect(() => {
+    if (!pieceIds) return;
+    api<{ products: LiveStock[] }>(`/products/live?ids=${encodeURIComponent(pieceIds)}`)
+      .then((r) => setLive(Object.fromEntries(r.products.filter((x) => x.checked).map((x) => [x.id, x]))))
+      .catch(() => {}); // the stored stock and prices still show
+  }, [pieceIds]);
+  const priceOf = (p: FeedLook['items'][number]['product']) => live[p.id]?.price ?? p.price;
+  const soldOut = (p: FeedLook['items'][number]['product']) => live[p.id] ? !live[p.id].inStock : p.inStock === false;
+  const checkedLive = Object.keys(live).length > 0;
+
+  // The like and comment counts update live while the page is open.
+  useLiveCounts(look ? [look.id] : [], (counts) => setLook((l) => (l ? withCounts(l, counts) : l)));
 
   /** Visitors join first, then come straight back to this look. */
   const join = `/signup?next=${encodeURIComponent(`/runway/${id}`)}`;
@@ -178,12 +195,12 @@ export default function LookView({ id }: { id: string }) {
                 <div className="flex items-baseline justify-between">
                   <h2 id="shop" className="text-lg font-semibold">Shop the look</h2>
                   <span className="text-sm text-ink/70">
-                    Total <span className="font-semibold text-ink">{rupees(look.total)}</span>
+                    Total <span className="font-semibold text-ink">{rupees(checkedLive ? look.items.reduce((sum, i) => sum + priceOf(i.product), 0) : look.total)}</span>
                   </span>
                 </div>
                 <ul className="mt-3 space-y-2.5">
                   {look.items.map(({ slot, product: p }) => (
-                    <li key={slot} className="flex items-center gap-3 rounded-2xl border border-line bg-white p-2.5">
+                    <li key={slot} className={`flex items-center gap-3 rounded-2xl border border-line p-2.5 ${soldOut(p) ? 'bg-sand/60' : 'bg-white'}`}>
                       {p.images?.[0] ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={p.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-20 w-16 shrink-0 rounded-xl object-cover object-top" style={{ background: p.hex }} />
@@ -191,10 +208,13 @@ export default function LookView({ id }: { id: string }) {
                         <span className="h-20 w-16 shrink-0 rounded-xl" style={{ background: p.hex }} />
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/65">{SLOT_NAME[slot]}</p>
+                        <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink/65">
+                          {SLOT_NAME[slot]}
+                          {soldOut(p) && <span className="rounded-full bg-ink/80 px-2 py-0.5 normal-case tracking-normal text-white">Sold out</span>}
+                        </p>
                         <p className="line-clamp-2 text-sm font-medium capitalize">{p.title}</p>
                         <p className="mt-0.5 text-xs text-ink/65">
-                          {p.brandName} · <span className="whitespace-nowrap font-semibold text-ink">{rupees(p.price)}</span>
+                          {p.brandName} · <span className="whitespace-nowrap font-semibold text-ink">{rupees(priceOf(p))}</span>
                         </p>
                       </div>
                       <a
@@ -204,12 +224,14 @@ export default function LookView({ id }: { id: string }) {
                         className="btn btn-ghost !min-h-[40px] shrink-0 !px-3.5 !py-2 text-sm"
                         aria-label={`Shop ${p.title} at ${p.brandName} (opens the brand's site)`}
                       >
-                        Shop ↗
+                        {soldOut(p) ? 'See it ↗' : 'Shop ↗'}
                       </a>
                     </li>
                   ))}
                 </ul>
-                <p className="mt-2 text-xs text-ink/65">Prices and stock are from each brand’s site and may have changed.</p>
+                <p className="mt-2 text-xs text-ink/65">
+                  {checkedLive ? 'Stock and prices just checked with each brand’s shop.' : 'Prices and stock are from each brand’s site and may have changed.'}
+                </p>
               </section>
 
               {/* ------------------------------ comments ------------------------------ */}

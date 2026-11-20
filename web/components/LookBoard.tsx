@@ -3,8 +3,8 @@ import type { Gender, Product, Slot } from '@/lib/types';
 
 /**
  * The look board: the outfit as worn, large on the left, and the pieces that complete it stacked
- * down the right (women: bottom, dupatta, shoes, bag, jewellery; men: bottom, waistcoat, shoes and an
- * accessory), like a styled flat-lay. Product photos
+ * down the right (women: bottom, dupatta, a coat or jacket, shoes, bag, jewellery; men: bottom, waistcoat,
+ * a coat or jacket, shoes and an accessory), like a styled flat-lay. Product photos
  * shot on white blend into the cream background, so accessories read as cut-outs. Empty slots are
  * dashed tiles (plum when the look still needs them); every tile can be tapped to choose that slot.
  */
@@ -25,8 +25,10 @@ interface Props {
   gender?: Gender;
 }
 
-const NAMES: Record<Slot, string> = { main: 'Outfit', bottom: 'Bottom', dupatta: 'Dupatta', footwear: 'Shoes', bag: 'Bag', jewelry: 'Jewellery', waistcoat: 'Waistcoat', accessory: 'Accessory' };
-const SIDE: Record<Gender, Slot[]> = { female: ['bottom', 'dupatta', 'footwear', 'bag', 'jewelry'], male: ['bottom', 'waistcoat', 'footwear', 'accessory'] };
+const NAMES: Record<Slot, string> = { main: 'Outfit', bottom: 'Bottom', dupatta: 'Dupatta', footwear: 'Shoes', bag: 'Bag', jewelry: 'Jewellery', waistcoat: 'Waistcoat', accessory: 'Accessory', layer: 'Coat / jacket' };
+const SIDE: Record<Gender, Slot[]> = { female: ['bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry'], male: ['bottom', 'waistcoat', 'layer', 'footwear', 'accessory'] };
+/** Clothes are photographed on a model, so their photos fill the tile. */
+const WORN: Slot[] = ['bottom', 'dupatta', 'waistcoat', 'layer'];
 const rupees = (n: number) => `Rs. ${n.toLocaleString('en-PK')}`;
 
 export default function LookBoard({ pieces, states = {}, active, onSlot, className = '', label, compact = false, gender = 'female' }: Props) {
@@ -62,14 +64,14 @@ export default function LookBoard({ pieces, states = {}, active, onSlot, classNa
     const photo = p.images?.[0];
     const isMain = slot === 'main';
     // Clothing photos are worn by a model; accessories are usually shot on white.
-    const fit = isMain ? 'object-cover object-top' : slot === 'bottom' || slot === 'dupatta' ? 'object-cover object-center' : 'object-contain mix-blend-multiply p-1';
+    const fit = isMain ? 'object-cover object-top' : WORN.includes(slot) ? 'object-cover object-center' : 'object-contain mix-blend-multiply p-1';
     return (
       <Tag
         key={`${slot}-${p.id}`}
         {...tap}
         title={`${p.title} · ${p.brandName} · ${rupees(p.price)}`}
         className={`piece-in relative block overflow-hidden ${isMain ? 'rounded-2xl' : 'rounded-xl'} ${shape} ${ring}`}
-        style={{ background: photo ? (isMain || slot === 'bottom' || slot === 'dupatta' ? p.hex : 'transparent') : p.hex }}
+        style={{ background: photo ? (isMain || WORN.includes(slot) ? p.hex : 'transparent') : p.hex }}
       >
         {photo && (
           // eslint-disable-next-line @next/next/no-img-element
