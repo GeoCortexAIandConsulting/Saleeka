@@ -1,0 +1,40 @@
+# Nightly catalog sync: reads every brand's public catalogue and updates the live database, so
+# stock, prices, new arrivals and removed pieces stay at most a day old. The API notices the new
+# catalog version within a minute and swaps it in without a restart.
+#
+# Needs one repository secret: MONGODB_URI (the same Atlas string Render uses).
+# Atlas → Network Access must allow GitHub's runners (0.0.0.0/0, as for Render's free plan).
+# Run it by hand from the Actions tab ("Run workflow"). Schedules only run from the default branch.
+name: Catalog sync
+
+on:
+  schedule:
+    - cron: '0 21 * * *' # 02:00 in Pakistan, when the brand sites are quietest
+  workflow_dispatch:
+
+concurrency:
+  group: catalog-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Read the brand catalogues
+        run: npm run catalog:fetch
+      - name: Update the live database
+        run: npm run catalog:import
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DB: saleeqa
