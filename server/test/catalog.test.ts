@@ -55,6 +55,16 @@ describe('tagging real catalog items', () => {
     expect(p.occasions).toContain('casual');
   });
 
+  it('files a bottom sold on its own as a bottom, whatever words describe it', () => {
+    for (const title of ['Stitched Culottes', 'Stitched Western Trouser', 'Stitched Relaxed Fit Pants', 'Stitched Embroidered Lawn Shalwar', 'Khaddar Trouser-Dyed(Unstitched)', 'Embroidered Palazzo']) {
+      expect(ok(raw({ title: `${title} - Black`, productType: 'Stitched' })).slot, title).toBe('bottom');
+    }
+    // A set, or a top named with its bottom, is still the outfit.
+    for (const title of ['Stitched Printed Lawn Shirt+ Culotte', '3 Piece Suit with Trouser', 'Embroidered Kurta with Shalwar', 'Co-ord Set with Pants']) {
+      expect(ok(raw({ title: `${title} - Black` })).slot, title).toBe('main');
+    }
+  });
+
   it('keeps a one-piece shirt as a main without a bottom', () => {
     const p = ok(raw({ title: 'Printed Cotton Shirt', productType: 'Unstitched', text: 'Unstitched 1-Piece\nShirt\nFabric: Cotton\nColour: Black & White' }));
     expect(p).toMatchObject({ slot: 'main', includesBottom: false, includesDupatta: false, colors: ['black', 'white'] });

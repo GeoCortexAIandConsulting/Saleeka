@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { RulesLlm } from '../src/services/llm.js';
+import { signUp } from './helpers.js';
 
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -15,7 +16,7 @@ beforeAll(async () => {
 
 async function player(name: string) {
   const agent = request.agent(app);
-  expect((await agent.post('/api/auth/signup').send({ email: `${name.toLowerCase()}${Math.random()}@example.com`, password: 'correct-horse-9', name, consent: true })).status).toBe(201);
+  expect((await signUp(agent, { email: `${name.toLowerCase()}${Math.random()}@example.com`, password: 'correct-horse-9', name, consent: true })).status).toBe(201);
   return agent;
 }
 
@@ -54,7 +55,7 @@ describe('landing showcase', () => {
     expect(res.status).toBe(200);
     expect(res.body.looks.map((l: any) => l.id)).toEqual([pictured]);
     expect(res.body.looks).not.toContainEqual(expect.objectContaining({ id: plain }));
-    expect(res.body.looks[0]).toMatchObject({ by: 'Noor', previewUrl: '/api/previews/pv1', comment: { by: 'Omar', text: 'Gorgeous!' } });
+    expect(res.body.looks[0]).toMatchObject({ by: expect.stringMatching(/^noor_\d+$/), previewUrl: '/api/previews/pv1', comment: { by: expect.stringMatching(/^omar_\d+$/), text: 'Gorgeous!' } });
     for (const field of ['byId', 'mine', 'myVote']) expect(res.body.looks[0]).not.toHaveProperty(field);
   });
 });

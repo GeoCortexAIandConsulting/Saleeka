@@ -4,6 +4,7 @@ import { createApp } from '../src/app.js';
 import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { featuredIds, weekEnds, weekIndex } from '../src/services/game.js';
 import { RulesLlm } from '../src/services/llm.js';
+import { signUp } from './helpers.js';
 
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -16,7 +17,7 @@ beforeAll(async () => {
 let n = 0;
 async function player(name: string) {
   const agent = request.agent(app);
-  expect((await agent.post('/api/auth/signup').send({ email: `wk${++n}@example.com`, password: 'correct-horse-9', name, consent: true })).status).toBe(201);
+  expect((await signUp(agent, { email: `wk${++n}@example.com`, password: 'correct-horse-9', name, consent: true })).status).toBe(201);
   return agent;
 }
 

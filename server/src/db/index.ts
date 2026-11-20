@@ -8,6 +8,7 @@ import type {
   DesignVote,
   DesignComment,
   PreviewImage,
+  PreviewUsage,
   AppNotification,
   CatalogMeta,
   EventRecord,
@@ -34,6 +35,7 @@ export interface Repos {
   designVotes: Collection<DesignVote>;
   comments: Collection<DesignComment>;
   previews: Collection<PreviewImage>;
+  previewUsage: Collection<PreviewUsage>;
   notifications: Collection<AppNotification>;
   /** Catalog sync status (one document, id 'catalog') */
   meta: Collection<CatalogMeta>;
@@ -55,6 +57,7 @@ export function createMemoryRepos(): Repos {
     designVotes: new MemoryCollection<DesignVote>(),
     comments: new MemoryCollection<DesignComment>(),
     previews: new MemoryCollection<PreviewImage>(),
+    previewUsage: new MemoryCollection<PreviewUsage>(),
     notifications: new MemoryCollection<AppNotification>(),
     meta: new MemoryCollection<CatalogMeta>(),
     close: async () => {},
@@ -77,16 +80,22 @@ export async function createMongoRepos(uri: string, dbName: string): Promise<Rep
     designVotes: new MongoCollection<DesignVote>(db, 'designVotes'),
     comments: new MongoCollection<DesignComment>(db, 'comments'),
     previews: new MongoCollection<PreviewImage>(db, 'previews'),
+    previewUsage: new MongoCollection<PreviewUsage>(db, 'previewUsage'),
     notifications: new MongoCollection<AppNotification>(db, 'notifications'),
     meta: new MongoCollection<CatalogMeta>(db, 'meta'),
     close: () => client.close(),
   };
   // Indexes that matter from day one.
   await db.collection('users').createIndex({ email: 1 }, { unique: true });
+  // Usernames are unique; older accounts without one are left out of the rule until they pick one.
+  await db.collection('users').createIndex({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: 'string' } } });
   await db.collection('products').createIndex({ slot: 1, inStock: 1 });
   await db.collection('products').createIndex({ inStock: 1 }); // the in-memory catalogue loads in-stock pieces only
   await db.collection('looks').createIndex({ userId: 1, saved: 1 });
   await db.collection('events').createIndex({ brandId: 1, type: 1, at: -1 });
+  // Preview limits: a player's previews, and everyone's in the last day.
+  await db.collection('events').createIndex({ userId: 1, type: 1, at: -1 });
+  await db.collection('events').createIndex({ type: 1, at: -1 });
   await db.collection('challenges').createIndex({ key: 1 }, { unique: true });
   await db.collection('designs').createIndex({ challengeId: 1 });
   await db.collection('designs').createIndex({ userId: 1 });

@@ -4,6 +4,7 @@ import { createApp } from '../src/app.js';
 import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { RulesLlm } from '../src/services/llm.js';
 import { modestAnswers } from './fixtures.js';
+import { signUp } from './helpers.js';
 
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -15,7 +16,7 @@ beforeAll(async () => {
 
 async function withProfile(email: string) {
   const agent = request.agent(app);
-  expect((await agent.post('/api/auth/signup').send({ email, password: 'correct-horse-9', name: 'Edit Test', consent: true })).status).toBe(201);
+  expect((await signUp(agent, { email, password: 'correct-horse-9', name: 'Edit Test', consent: true })).status).toBe(201);
   expect((await agent.post('/api/quiz/answers').send({ ...modestAnswers, gender: 'female', ageRange: '25-34' })).status).toBe(201);
   return agent;
 }

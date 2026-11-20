@@ -171,15 +171,19 @@ function layerSeasons(silhouette: string, labelled: Product['seasons']): Product
   if (!labelled.includes('all')) return labelled;
   return ['blazer', 'shacket', 'gilet'].includes(silhouette) ? ['all'] : ['winter'];
 }
-const NOT_CLOTHING = /wallet|wristlet|card ?holder|coin ?purse|passport|fragrance|perfume|parfum|body ?mist|attar|cologne|deodorant|cosmetic|make-?up|lipstick|nail|skin ?care|lotion|candle|bed ?sheet|duvet|quilt|comforter|pillow|cushion|towel|curtain|table ?(?:cover|runner|mat)|napkin|home|gift ?card|face ?mask|socks?\b|underwear|lingerie|\bbra\b|panty|nightwear|sleepwear|night ?suit|pyjama|pajama|loungewear|swim|keychain|charm|hair ?(?:clip|band|tie)|scrunchie|sunglass|watch|belt\b|cap\b|hat\b|gloves?|mittens?|umbrella|fabric glossary|sample/i;
+const NOT_CLOTHING = /wallet|wristlet|card ?holder|coin ?purse|passport|fragrance|perfume|parfum|body ?mist|attar|cologne|deodorant|cosmetic|make-?up|lipstick|nail|skin ?care|lotion|candle|bed ?sheet|duvet|quilt|comforter|pillow|cushion|towel|curtain|table ?(?:cover|runner|mat)|napkin|home|gift ?card|face ?mask|socks?\b|underwear|lingerie|\bbra\b|panty|nightwear|sleepwear|night ?suit|pyjama|pajama|loungewear|swim|keychain|charm|hair ?(?:clip|band|tie)|scrunchie|cap\b|hat\b|gloves?|mittens?|umbrella|fabric glossary|sample/i;
 const OUTERWEAR = /\b(jackets?|coats?|overcoats?|cardigans?|sweaters?|jumpers?|hoodies?|sweat ?shirts?|blazers?|waist ?coats?|gilets?|puffers?|pullovers?|shrugs?|ponchos?|capes?|shackets?|bombers?|parkas?)\b/i;
 
+/** Women's accessories that are not jewellery: a watch, sunglasses, a belt, a brooch. */
+const W_ACCESSORY = /\b(watch(?:es)?|sun ?glass(?:es)?|eyewear|shades|belts?|brooch(?:es)?)\b/i;
 const JEWELRY = /\b(earrings?|jhumk[ae]y?s?|jhumka|necklaces?|bangles?|bracelets?|rings?|tikka|anklets?|chokers?|pendants?|jewell?ery|jewelry)\b/i;
 const BAG = /\b(bags?|clutch(?:es)?|totes?|potli|purses?|wallets?|backpacks?|cross ?body|pouch(?:es)?|handbags?|satchel)\b/i;
 const SHOE = /\b(shoes?|khussa[sy]?|khussay|heels?|sandals?|slippers?|chappals?|kolhapuri|sneakers?|trainers?|pumps?|loafers?|mules?|flats?|wedges?|boots?(?![- ]?cut)|peshawari|slides?|footwear|ballerinas?|stilettos?)\b/i;
 const DRAPE = /\b(dupatta|shawl|stole|scarf|scarves|hijab|wrap|chaddar|chadar)\b/i;
 const BOTTOM = /\b(trousers?|pants?|shalwar|salwar|palazzo|culottes?|cigarette|jeans|tights|leggings?|jeggings|skirt|capri|bottoms?|sharara|gharara|churidar|joggers?)\b/i;
 const SET = /\b([23]|two|three)[- ]?(?:pc|pcs|piece|pieces)\b|\bsuit\b|\bco-?ord\b|\bset\b/i;
+/** Words that name a whole garment (unlike "stitched" or "lawn", which only describe one). */
+const GARMENT = /kurta|kameez|kurti|shirt|dress|frock|maxi|angrakha|tunic|\btop\b|blouse|\btee\b|t-shirt|suit|peshwas|gown|lehenga|anarkali|co-?ord|jumpsuit|saree|sari/i;
 
 /** Lines like "Dupatta: Chiffon 2.5m" or "Trouser" heading a piece list. */
 const pieceLine = (word: RegExp, text: string) => new RegExp(`(^|\\n)\\s*(?:dyed |printed |embroidered |plain )?${word.source}\\b`, 'i').test(text) || new RegExp(`${word.source}\\s*[:–-]`, 'i').test(text);
@@ -305,7 +309,9 @@ export function normalize(raw: RawItem, src: BrandSource, checkedAt: string): No
   const cleanMeta = meta.replace(/\b(?:flat|upto|up to|sale|off)\s*\d+\s*%?(?:\s*off)?/gi, ' ');
   const MAIN_WORDS = /unstitched|stitched|kurta|kameez|kurti|shirt|dress|frock|maxi|angrakha|tunic|\btop\b|blouse|tee\b|t-shirt|suit|peshwas|gown|lehenga|anarkali|co-?ord/i;
   const classify = (t: string): Slot | null =>
-    has(JEWELRY, t) && !has(BAG, t) && !has(SHOE, t) ? 'jewelry' // a "D-Ring Tote Bag" is a bag, a "Ring Loafer" a shoe
+    // A "Bracelet Watch" is a watch; "Trousers With Belt" or a "Coat With Belt Detail" are clothes.
+    has(W_ACCESSORY, t) && ![BAG, SHOE, BOTTOM, OUTERWEAR, DRAPE, MAIN_WORDS].some((re) => has(re, t)) ? 'accessory'
+    : has(JEWELRY, t) && !has(BAG, t) && !has(SHOE, t) ? 'jewelry' // a "D-Ring Tote Bag" is a bag, a "Ring Loafer" a shoe
     : has(SHOE, t) ? 'footwear'
     : has(BAG, t) ? 'bag'
     : has(SET, t) || has(MAIN_WORDS, t) ? 'main'
@@ -316,8 +322,12 @@ export function normalize(raw: RawItem, src: BrandSource, checkedAt: string): No
   // Jewellery is never an outfit: "Ring Set", "Jewelry Set", "Choker Necklace set", or a "Set" a
   // brand files under Jewellery is jewellery, unless the title also names a garment.
   // A bag is a bag whatever its hardware ("D-Ring Tote Bag").
-  const titleJewel = !has(MAIN_WORDS, raw.title) && !has(BAG, raw.title) && !has(SHOE, raw.title) && (has(JEWELRY, raw.title) || (has(SET, raw.title) && has(JEWELRY, raw.productType)));
-  const titleSlot = titleJewel ? 'jewelry' : has(SET, raw.title) || has(MAIN_WORDS, raw.title) ? 'main' : classify(raw.title);
+  const titleJewel = !has(MAIN_WORDS, raw.title) && !has(BAG, raw.title) && !has(SHOE, raw.title) && classify(raw.title) !== 'accessory' && (has(JEWELRY, raw.title) || (has(SET, raw.title) && has(JEWELRY, raw.productType)));
+  // A bottom sold on its own is a bottom, whatever words describe it: "Stitched Culottes", "Stitched
+  // Embroidered Lawn Shalwar" and "Khaddar Trouser-Dyed(Unstitched)" are not outfits. Only a set
+  // ("3 Piece Suit", "Co-ord") or a named top ("Kurta with Trouser") makes it the outfit.
+  const titleBottom = has(BOTTOM, raw.title) && !has(SET, raw.title) && !has(GARMENT, raw.title);
+  const titleSlot = titleJewel ? 'jewelry' : titleBottom ? 'bottom' : has(SET, raw.title) || has(MAIN_WORDS, raw.title) ? 'main' : classify(raw.title);
   let slot: Slot;
   const fromMeta = classify(cleanMeta);
   // Coats, jackets and sweaters are worn over the outfit: the look's layer. A suit or kurta that comes
@@ -449,6 +459,7 @@ export function normalize(raw: RawItem, src: BrandSource, checkedAt: string): No
     slot === 'dupatta' ? kindOf([[/hijab|scarf|scarves|stole/i, 'scarf'], [/shawl|wrap|chaddar|chadar/i, 'shawl']], 'dupatta')
     : slot === 'footwear' ? kindOf([[/khussa|kolhapuri|peshawari/i, 'khussa'], [/heel|pump|stiletto|wedge/i, 'heel'], [/sneaker|trainer/i, 'sneaker'], [/sandal|slide|chappal|slipper|mule/i, 'sandal']], 'flat')
     : slot === 'bag' ? kindOf([[/clutch/i, 'clutch'], [/tote/i, 'tote'], [/potli/i, 'potli']], 'shoulder bag')
+    : slot === 'accessory' ? kindOf([[/watch/i, 'watch'], [/sun ?glass|eyewear|shades/i, 'sunglasses'], [/belt/i, 'belt'], [/brooch/i, 'brooch']], 'watch')
     : kindOf([[/jhumk/i, 'jhumkay'], [/earring|ear ?cuff|studs?\b|hoops?\b/i, 'earrings'], [/\brings?\b/i, 'ring'], [/necklace|choker|pendant|\bset\b/i, 'necklace set'], [/tikka/i, 'maang tikka'], [/bangle|bracelet|kara|cuff/i, 'bangles']], 'earrings');
   // Accessories go with any season; formal ones (embellished, khussa, heels, clutch, potli) dress up.
   const dressy = embellishment >= 2 || ['khussa', 'heel', 'clutch', 'potli', 'jhumkay', 'necklace set', 'maang tikka'].includes(silhouette);

@@ -8,9 +8,10 @@
  * design is one the stylist could actually recommend.
  */
 import { createHash } from 'node:crypto';
+import { config } from '../config.js';
 import type { Repos } from '../db/index.js';
 import { AppError } from '../errors.js';
-import { FORMAL_OCCASIONS, slotsFor, type Challenge, type ChatConstraints, type Design, type DesignComment, type Gender, type LookItem, type Occasion, type Product, type Profile, type Season, type Slot } from '../types.js';
+import { FORMAL_OCCASIONS, maxPieces, slotsFor, type Challenge, type ChatConstraints, type Design, type DesignComment, type Gender, type LookItem, type Occasion, type Product, type Profile, type Season, type Slot } from '../types.js';
 import { minModestyFor } from './modesty.js';
 import { currentSeason, formality, suitsOccasion } from './composer.js';
 import { uid } from './looks.js';
@@ -67,9 +68,17 @@ const SEED: Array<Omit<Challenge, 'id' | 'key' | 'source' | 'asks' | 'createdAt'
 ];
 
 /** One key per kind of request, so repeat searches count up the same challenge. */
-export function challengeKey(c: Pick<Challenge, 'occasion' | 'colors' | 'coverage' | 'wantsDupatta' | 'gender' | 'season'>): string {
+export function challengeKey(c: Pick<Challenge, 'occasion' | 'colors' | 'coverage' | 'wantsDupatta' | 'gender' | 'season' | 'tiers' | 'brandIds' | 'maxPrice'>): string {
   const key = [c.occasion, [...c.colors].sort().join('+') || 'any', c.coverage, c.wantsDupatta ? 'dupatta' : '-'];
-  return [...key, ...(c.gender === 'male' ? ['male'] : []), ...(c.season ? [c.season] : [])].join('|');
+  return [
+    ...key,
+    ...(c.gender === 'male' ? ['male'] : []),
+    ...(c.season ? [c.season] : []),
+    // A player's own brief: its budget and brands make it a different request.
+    ...(c.tiers?.length ? [`tiers=${[...c.tiers].sort().join('+')}`] : []),
+    ...(c.brandIds?.length ? [`brands=${[...c.brandIds].sort().join('+')}`] : []),
+    ...(c.maxPrice ? [`max=${c.maxPrice}`] : []),
+  ].join('|');
 }
 
 export async function seedChallenges(repos: Repos): Promise<void> {
@@ -126,6 +135,10 @@ export function publicChallenge(c: Challenge, designs: number) {
     gender: genderOf(c),
     season: c.season ?? null,
     fromShoppers: c.source === 'search',
+    custom: c.source === 'custom',
+    tiers: c.tiers ?? [],
+    brandIds: c.brandIds ?? [],
+    maxPrice: c.maxPrice ?? null,
     asks: c.asks,
     designs,
   };
@@ -168,7 +181,13 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT, 
   // A seasonal brief uses its own season; any other uses the season it is now (winter: Nov to Feb).
   const season: Season = c.season ?? currentSeason(now);
   const forSeason = (p: Product) => p.seasons.includes(season) || p.seasons.includes('all');
-  const usable = catalog.filter((p) => p.inStock && genderOf(p) === gender && suitsOccasion(p, c.occasion) && (!c.season || forSeason(p)));
+  const usable = catalog.filter(
+    (p) => p.inStock && genderOf(p) === gender && suitsOccasion(p, c.occasion) && (!c.season || forSeason(p)) && (!c.tiers?.length || c.tiers.includes(p.tier)),
+  );
+  // A player's own brief can name brands: those brands' pieces only, unless none of them sells that
+  // kind of piece (a clothing brand with no shoes), then every brand's.
+  const brands = c.brandIds?.length ? new Set(c.brandIds) : null;
+  const priceOk = (p: Product) => !c.maxPrice || p.slot !== 'main' || p.price <= c.maxPrice;
   const festive = FORMAL_OCCASIONS.includes(c.occasion);
   // Best fit for the challenge first, not cheapest first: the order nudges what players pick, and
   // their picks teach the stylist. Outfits: mainly the asked colour, then dressier for festive briefs.
@@ -182,11 +201,13 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT, 
     (p.slot === 'main'
       ? (c.colors.includes(p.colors[0]) ? 2 : 0) + (festive ? 0.5 * p.embellishment : -0.3 * p.embellishment)
       : -Math.abs(formality(p) - (festive ? 2.5 : 0.5)));
-  const of = (slot: Slot, keep: (p: Product) => boolean = () => true) =>
-    usable
-      .filter((p) => p.slot === slot && keep(p))
+  const of = (slot: Slot, keep: (p: Product) => boolean = () => true) => {
+    const all = usable.filter((p) => p.slot === slot && priceOk(p) && keep(p));
+    const fromBrands = brands ? all.filter((p) => brands.has(p.brandId)) : all;
+    return (fromBrands.length ? fromBrands : all)
       .sort((a, b) => fit(b) - fit(a) || (festive ? b.price - a.price : a.price - b.price) || a.id.localeCompare(b.id))
       .slice(0, perSlot);
+  };
   const colourOk = (p: Product) => !c.colors.length || p.colors.some((col) => c.colors.includes(col));
   if (gender === 'male') {
     return {
@@ -212,6 +233,7 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT, 
     footwear: of('footwear'),
     bag: of('bag'),
     jewelry: of('jewelry'),
+    accessory: of('accessory'),
   };
 }
 
@@ -326,10 +348,11 @@ export function slotRules(main: Product, c: Challenge): Partial<Record<Slot, Rul
     footwear: 'required',
     bag: 'optional',
     jewelry: 'optional',
+    accessory: 'optional',
   };
 }
 
-const SLOT_WORD: Partial<Record<Slot, string>> = { footwear: 'shoes', jewelry: 'jewellery', layer: 'a coat or jacket' };
+const SLOT_WORD: Partial<Record<Slot, string>> = { footwear: 'shoes', jewelry: 'jewellery', layer: 'a coat or jacket', accessory: 'accessories' };
 
 export async function submitDesign(
   repos: Repos,
@@ -337,18 +360,23 @@ export async function submitDesign(
   input: { challengeId: string; items: LookItem[]; draft?: boolean },
 ): Promise<Design> {
   const c = await loadChallenge(repos, input.challengeId);
-  const slots = input.items.map((i) => i.slot);
-  if (new Set(slots).size !== slots.length) throw new AppError(400, 'One piece per slot');
+  // One piece per slot, except jewellery and accessories (up to three: earrings, rings and a bracelet).
+  const perSlot = new Map<Slot, number>();
+  for (const it of input.items) perSlot.set(it.slot, (perSlot.get(it.slot) ?? 0) + 1);
+  for (const [slot, n] of perSlot) {
+    if (n > maxPieces(slot)) throw new AppError(400, maxPieces(slot) > 1 ? `Up to ${maxPieces(slot)} pieces of ${SLOT_WORD[slot] ?? slot}` : 'One piece per slot');
+  }
+  if (new Set(input.items.map((i) => i.productId)).size !== input.items.length) throw new AppError(400, 'Each piece only once');
 
   const catalog = await repos.products.find({ id: { $in: input.items.map((i) => i.productId) } });
   const allowed = gameItems(catalog, c);
-  const chosen = new Map<Slot, Product>();
+  const chosen = new Map<Slot, Product[]>();
   for (const it of input.items) {
     const p = allowed[it.slot]?.find((x) => x.id === it.productId);
     if (!p) throw new AppError(400, 'That piece does not fit this challenge');
-    chosen.set(it.slot, p);
+    chosen.set(it.slot, [...(chosen.get(it.slot) ?? []), p]);
   }
-  const main = chosen.get('main');
+  const main = chosen.get('main')?.[0];
   if (!main) throw new AppError(400, 'Choose an outfit first');
   const rules = slotRules(main, c);
   for (const slot of slotsFor(genderOf(c)).filter((x) => x !== 'main')) {
@@ -357,15 +385,16 @@ export async function submitDesign(
     if (rule === 'required' && !chosen.has(slot)) throw new AppError(400, `This look needs ${word}`);
     if (rule === 'included' && chosen.has(slot)) throw new AppError(400, `This outfit already comes with ${word}`);
   }
-  const total = [...chosen.values()].reduce((n, p) => n + p.price, 0);
+  const pieces = [...chosen].flatMap(([slot, ps]) => ps.map((p) => ({ slot, p })));
+  const total = pieces.reduce((n, x) => n + x.p.price, 0);
 
   const design: Design = {
     id: uid(),
     userId,
     challengeId: c.id,
     // The brands the clothes came from, for brand reports.
-    brandIds: [...new Set([...chosen].filter(([slot]) => CLOTHING_SLOTS.includes(slot)).map(([, p]) => p.brandId))],
-    items: [...chosen].map(([slot, p]) => ({ slot, productId: p.id })),
+    brandIds: [...new Set(pieces.filter((x) => CLOTHING_SLOTS.includes(x.slot)).map((x) => x.p.brandId))],
+    items: pieces.map((x) => ({ slot: x.slot, productId: x.p.id })),
     total,
     up: 0,
     down: 0,
@@ -375,7 +404,42 @@ export async function submitDesign(
   // One draft per player: saving a changed look replaces the previous draft.
   if (input.draft) await discardDrafts(repos, userId);
   await repos.designs.insert(design);
+  if (!input.draft) await countFriend(repos, userId, design.id);
   return design;
+}
+
+/**
+ * A player who joined from a friend's share link counts for that friend once, when they publish
+ * their first look. Every few friends (config.preview.friendsForCredit) earn the friend one more AI
+ * preview, up to a cap. The friend hears about each one.
+ */
+export async function countFriend(repos: Repos, userId: string, designId: string) {
+  const me = await repos.users.findOne({ id: userId });
+  if (!me?.referredBy || me.referralCounted) return;
+  // One atomic step: two looks published at once still count once.
+  const marked = await repos.users.update({ id: userId, referralCounted: { $ne: true } }, { referralCounted: true });
+  if (!marked) return;
+  const friend = await repos.users.findOne({ id: me.referredBy });
+  if (!friend) return;
+  await repos.users.increment({ id: friend.id }, 'referrals', 1);
+  const count = (friend.referrals ?? 0) + 1;
+  const { friendsForCredit, friendCreditCap } = config.preview;
+  const earned = count % friendsForCredit === 0 && (friend.referralCredits ?? 0) < friendCreditCap;
+  if (earned) {
+    await repos.users.increment({ id: friend.id }, 'previewCredits', 1);
+    await repos.users.increment({ id: friend.id }, 'referralCredits', 1);
+  }
+  const toGo = friendsForCredit - (count % friendsForCredit || friendsForCredit);
+  await repos.notifications.insert({
+    id: `friend:${userId}`,
+    userId: friend.id,
+    type: 'friend',
+    actorId: userId,
+    designId,
+    text: earned ? 'You earned a free AI preview!' : (friend.referralCredits ?? 0) >= friendCreditCap ? 'Thanks for sharing Saleeqa!' : `${toGo} more friend${toGo === 1 ? '' : 's'} for a free AI preview.`,
+    at: new Date().toISOString(),
+    read: false,
+  });
 }
 
 export const isPublished = (d: Design) => d.status !== 'draft';
@@ -408,7 +472,9 @@ export async function publishDesign(repos: Repos, userId: string, designId: stri
   const d = await repos.designs.findOne({ id: designId, userId });
   if (!d) throw new AppError(404, 'Design not found');
   if (isPublished(d)) return d;
-  return (await repos.designs.update({ id: d.id }, { status: 'published', createdAt: new Date().toISOString() }))!;
+  const published = (await repos.designs.update({ id: d.id }, { status: 'published', createdAt: new Date().toISOString() }))!;
+  await countFriend(repos, userId, d.id);
+  return published;
 }
 
 export async function hydrateDesigns(repos: Repos, designs: Design[]) {
@@ -476,7 +542,8 @@ const firstName = (name?: string) => (name ?? '').trim().split(/\s+/)[0] || 'A s
 async function namesOf(repos: Repos, userIds: string[]) {
   const ids = [...new Set(userIds)];
   const users = ids.length ? await repos.users.find({ id: { $in: ids } }) : [];
-  return new Map(users.map((u) => [u.id, firstName(u.name)]));
+  // The player's username; older accounts that have not picked one yet show their first name.
+  return new Map(users.map((u) => [u.id, u.username ?? firstName(u.name)]));
 }
 
 /**
@@ -736,6 +803,7 @@ export async function playerProfile(repos: Repos, viewerId: string, playerId: st
   return {
     id: user.id,
     name: firstName(user.name),
+    username: user.username ?? null,
     joined: user.createdAt,
     me: user.id === viewerId,
     stats: { looks: designs.length, likes: designs.reduce((n, d) => n + d.up, 0) },

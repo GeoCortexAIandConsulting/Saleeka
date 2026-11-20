@@ -8,8 +8,11 @@ import { createApp } from '../src/app.js';
 import { config } from '../src/config.js';
 import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { RulesLlm } from '../src/services/llm.js';
+import sharp from 'sharp';
+import { signUp } from './helpers.js';
 
-const PNG = Buffer.from('fake-png').toString('base64');
+/** A real PNG, as Gemini sends, so the WebP step has a picture to convert. */
+let PNG = '';
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
 const gemini: Array<{ parts: any[]; url: string; headers: Record<string, string> }> = [];
@@ -17,6 +20,11 @@ const realFetch = globalThis.fetch;
 const saved = { ...config.preview };
 
 beforeAll(async () => {
+  // These tests make many previews; the free allowance and caps have their own tests (previewBudget.test.ts).
+  Object.assign(config.preview, { free: 100, globalDailyCap: 1000 });
+  const noise = Buffer.alloc(300 * 400 * 3);
+  for (let i = 0; i < noise.length; i++) noise[i] = (i * 2654435761) % 251;
+  PNG = (await sharp(noise, { raw: { width: 300, height: 400, channels: 3 } }).png().toBuffer()).toString('base64');
   // A real key in server/.env must not switch the preview on (or reach the mocks) in these tests.
   config.preview.apiKey = '';
   repos = createMemoryRepos();
@@ -38,10 +46,16 @@ afterAll(() => {
   Object.assign(config.preview, saved);
 });
 
-async function draftLook() {
+/** Signs up and clicks the link in the verification email, as a player would. */
+async function verifiedPlayer(name: string) {
   const agent = request.agent(app);
   const email = `preview${Math.random().toString(36).slice(2)}@example.com`;
-  expect((await agent.post('/api/auth/signup').send({ email, password: 'correct-horse-9', name: 'Ayesha', consent: true })).status).toBe(201);
+  await signUp(agent, { email, name });
+  return agent;
+}
+
+async function draftLook() {
+  const agent = await verifiedPlayer('Ayesha');
   const { body } = await agent.get('/api/game/challenges/seed-mehndi-mustard/items');
   const cheapest = (slot: string) => [...body.items[slot]].sort((a: any, b: any) => a.price - b.price)[0];
   const main = cheapest('main');
@@ -66,7 +80,7 @@ describe('AI look preview', () => {
     config.preview.project = 'test-project';
     gemini.length = 0;
     const { agent, design, items } = await draftLook();
-    expect((await agent.get('/api/game/preview')).body).toEqual({ enabled: true });
+    expect((await agent.get('/api/game/preview')).body).toMatchObject({ enabled: true, status: { verified: true, blocked: null } });
 
     const res = await agent.post(`/api/game/designs/${design.id}/preview`);
     expect(res.status).toBe(200);
@@ -80,7 +94,8 @@ describe('AI look preview', () => {
     // The image is served to signed-in players only; the base model photo is never served.
     const img = await agent.get(res.body.design.previewUrl);
     expect(img.status).toBe(200);
-    expect(img.headers['content-type']).toMatch(/image\/png/);
+    // Saved as WebP, not the PNG Gemini sent (on real previews about 80 KB instead of 1.2 to 1.7 MB).
+    expect(img.headers['content-type']).toMatch(/image\/webp/);
     // A draft's image is private to its designer.
     expect((await request(app).get(res.body.design.previewUrl)).status).toBe(404);
     const base = (await repos.previews.find()).find((p) => p.id.startsWith('base-v2-female-'))!;
@@ -137,9 +152,7 @@ describe('AI look preview', () => {
   it('does the same for men: a fair, handsome model at his size, menswear worn crisp and styled for the occasion', async () => {
     config.preview.project = 'test-project';
     gemini.length = 0;
-    const agent = request.agent(app);
-    const email = `preview-men${Math.random().toString(36).slice(2)}@example.com`;
-    expect((await agent.post('/api/auth/signup').send({ email, password: 'correct-horse-9', name: 'Ali', consent: true })).status).toBe(201);
+    const agent = await verifiedPlayer('Ali');
     const { body } = await agent.get('/api/game/challenges/seed-men-baraat/items');
     const first = (slot: string) => body.items[slot][0];
     const items = [{ slot: 'main', productId: first('main').id }, { slot: 'footwear', productId: first('footwear').id }];
@@ -187,7 +200,7 @@ describe('AI look preview', () => {
     Object.assign(config.preview, { project: '', apiKey: 'test-key', dailyLimit: 10 });
     gemini.length = 0;
     const { agent, design } = await draftLook();
-    expect((await agent.get('/api/game/preview')).body).toEqual({ enabled: true });
+    expect((await agent.get('/api/game/preview')).body).toMatchObject({ enabled: true, status: { verified: true, blocked: null } });
     expect((await agent.post(`/api/game/designs/${design.id}/preview`)).status).toBe(200);
     expect(gemini.length).toBeGreaterThan(0);
     for (const call of gemini) {

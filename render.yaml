@@ -20,7 +20,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       # Full Atlas string with the real password, e.g.
-      # mongodb+srv://geocortexaiandconsultingllc_db_user:<db_password>@cluster0.this7ff.mongodb.net/
+      # mongodb+srv://<user>:<password>@<cluster>/
       - key: MONGODB_URI
         sync: false
       - key: MONGODB_DB
@@ -32,6 +32,19 @@ services:
         value: rules
       # AI look preview: a Google Cloud API key restricted to the Vertex AI API (leave empty to hide it).
       - key: GOOGLE_API_KEY
+        sync: false
+      # Most new AI previews across all players per day (a cap on what one busy night can cost).
+      - key: PREVIEW_GLOBAL_DAILY_CAP
+        value: "300"
+      # Emergency switch: set to true to stop new AI previews for everyone (publishing still works).
+      - key: PREVIEWS_OFF
+        value: "false"
+      # Account emails: resend or brevo, its API key, and a sender address it has verified.
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: EMAIL_FROM
         sync: false
 
   # Next.js web app (web/)

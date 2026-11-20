@@ -4,6 +4,8 @@ import { createApp } from '../src/app.js';
 import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { RulesLlm } from '../src/services/llm.js';
 import { modestAnswers } from './fixtures.js';
+import { linkTo, signUp } from './helpers.js';
+import { config } from '../src/config.js';
 
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -15,20 +17,39 @@ beforeAll(async () => {
 
 async function signedIn(email: string) {
   const agent = request.agent(app);
-  const res = await agent
-    .post('/api/auth/signup')
-    .send({ email, password: 'correct-horse-9', name: 'Test User', consent: true });
-  expect(res.status).toBe(201);
+  await signUp(agent, { email, name: 'Test User' });
   return agent;
 }
 
 describe('auth and privacy', () => {
-  it('rejects signup without consent, short passwords and duplicates', async () => {
-    const base = { email: 'a@example.com', password: 'correct-horse-9', name: 'A' };
+  it('rejects signup without consent, short passwords, a bad username and duplicates', async () => {
+    const base = { email: 'a@example.com', password: 'correct-horse-9', name: 'A', username: 'ayesha.k' };
     expect((await request(app).post('/api/auth/signup').send({ ...base, consent: false })).status).toBe(400);
     expect((await request(app).post('/api/auth/signup').send({ ...base, password: 'short', consent: true })).status).toBe(400);
-    expect((await request(app).post('/api/auth/signup').send({ ...base, consent: true })).status).toBe(201);
-    expect((await request(app).post('/api/auth/signup').send({ ...base, consent: true })).status).toBe(409);
+    expect((await request(app).post('/api/auth/signup').send({ ...base, username: 'a!', consent: true })).status).toBe(400);
+    const made = await request(app).post('/api/auth/signup').send({ ...base, consent: true });
+    expect(made.status).toBe(201);
+    // Not signed in yet: the account is finished by the link in the email.
+    expect(made.body).toMatchObject({ pending: true, email: 'a@example.com' });
+    // On a laptop without an email service, the link comes back too (so the owner can test).
+    expect(made.body.devLink).toMatch(/\/verify\?token=/);
+    expect(made.headers['set-cookie']).toBeUndefined();
+    expect((await request(app).post('/api/auth/signup').send({ ...base, username: 'someone.else', consent: true })).status).toBe(409);
+  });
+
+  it('cannot sign in until the email is confirmed; the link signs the player in, once', async () => {
+    const early = await request(app).post('/api/auth/login').send({ email: 'a@example.com', password: 'correct-horse-9' });
+    expect(early.status).toBe(403);
+    expect(early.body.error).toMatch(/confirm your email/i);
+    // A new link can be asked for by email, with the same answer for any address.
+    await request(app).post('/api/auth/verify/resend').send({ email: 'nobody@example.com' }).expect(200);
+    const agent = request.agent(app);
+    const token = linkTo('a@example.com')!.searchParams.get('token');
+    const done = await agent.post('/api/auth/verify').send({ token });
+    expect(done.status).toBe(200);
+    expect(done.body.user).toMatchObject({ username: 'ayesha.k', emailVerified: true });
+    expect((await agent.get('/api/me')).status).toBe(200);
+    await request(app).post('/api/auth/verify').send({ token }).expect(400);
   });
 
   it('logs in with the right password only and never leaks the hash', async () => {
@@ -211,5 +232,53 @@ describe('full shopper journey', () => {
     expect(impossible.body.reply).toMatch(/could not find/i);
     const narrow = await agent.post('/api/chat').send({ message: 'office outfit, red, from Demo Heritage, under 12k' });
     if (narrow.body.looks.length) expect(Array.isArray(narrow.body.notes)).toBe(true);
+  });
+});
+
+describe('usernames', () => {
+  const check = async (name: string) => (await request(app).get('/api/auth/username').query({ name })).body;
+
+  it('checks the shape and says why in plain words', async () => {
+    expect(await check('ab')).toMatchObject({ available: false, reason: expect.stringMatching(/at least 3/) });
+    expect(await check('a'.repeat(21))).toMatchObject({ available: false, reason: expect.stringMatching(/at most 20/) });
+    expect(await check('hello world')).toMatchObject({ available: false, reason: expect.stringMatching(/letters, numbers/) });
+    expect(await check('.dot')).toMatchObject({ available: false, reason: expect.stringMatching(/Start and end/) });
+    expect(await check('two..dots')).toMatchObject({ available: false, reason: expect.stringMatching(/in a row/) });
+    expect(await check('admin')).toMatchObject({ available: false, reason: expect.stringMatching(/reserved/) });
+    expect(await check('saleeqa_team')).toMatchObject({ available: false, reason: expect.stringMatching(/reserved/) });
+    expect(await check('@Sana.Styles')).toEqual({ username: 'sana.styles', available: true });
+  });
+
+  it('is unique whatever the capital letters, and a player can change theirs', async () => {
+    const sana = request.agent(app);
+    await signUp(sana, { email: 'sana-u@example.com', name: 'Sana', username: 'Sana_Styles' });
+    expect((await sana.get('/api/me')).body.user.username).toBe('sana_styles');
+    expect(await check('SANA_STYLES')).toMatchObject({ available: false, reason: expect.stringMatching(/taken/) });
+    const signup = await request(app).post('/api/auth/signup').send({ email: 'other-u@example.com', password: 'correct-horse-9', name: 'O', username: 'sana_styles', consent: true });
+    expect(signup.status).toBe(409);
+    // Their own name counts as free for them; a new one is checked the same way.
+    expect((await sana.get('/api/auth/username').query({ name: 'sana_styles' })).body.available).toBe(true);
+    expect((await sana.patch('/api/me').send({ username: 'admin' })).status).toBe(400);
+    expect((await sana.patch('/api/me').send({ username: 'sana.k' })).body.user.username).toBe('sana.k');
+    expect(await check('sana_styles')).toMatchObject({ available: true });
+  });
+});
+
+describe('testing on a laptop', () => {
+  it('hands the email link to the page only without an email service, and never on a live server', async () => {
+    const was = { prod: config.isProd, email: { ...config.email } };
+    const send = (email: string) => request(app).post('/api/auth/signup').send({ email, password: 'correct-horse-9', name: 'Dev', username: `dev_${email.split('@')[0]}`, consent: true });
+    try {
+      expect((await send('dev1@example.com')).body.devLink).toBeTruthy();
+      Object.assign(config.email, { provider: 'brevo', apiKey: 'set' });
+      expect((await send('dev2@example.com')).body).not.toHaveProperty('devLink');
+      Object.assign(config.email, was.email);
+      Object.assign(config, { isProd: true });
+      expect((await send('dev3@example.com')).body).not.toHaveProperty('devLink');
+      expect((await request(app).post('/api/auth/forgot').send({ email: 'dev1@example.com' })).body).not.toHaveProperty('devLink');
+    } finally {
+      Object.assign(config, { isProd: was.prod });
+      Object.assign(config.email, was.email);
+    }
   });
 });

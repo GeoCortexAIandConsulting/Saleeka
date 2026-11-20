@@ -4,16 +4,21 @@ export type Gender = 'female' | 'male';
 
 /**
  * Women's looks use main, bottom, dupatta, footwear, bag and jewelry; men's use main, bottom, waistcoat,
- * footwear and accessory. In the Studio both can add a layer (coat, jacket, sweater, cardigan).
+ * footwear and accessory. In the Studio both can add a layer (coat, jacket, sweater, cardigan), and
+ * women an accessory (watch, sunglasses, belt).
  */
 export type Slot = 'main' | 'bottom' | 'dupatta' | 'footwear' | 'bag' | 'jewelry' | 'waistcoat' | 'accessory' | 'layer';
 /** The slots of a women's look (the stylist, the ranking rounds and saved looks use only these). */
 export const SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'footwear', 'bag', 'jewelry'];
 /** The slots of a women's look in the Studio, in the order they are chosen. */
-export const WOMEN_GAME_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry'];
+export const WOMEN_GAME_SLOTS: Slot[] = ['main', 'bottom', 'dupatta', 'layer', 'footwear', 'bag', 'jewelry', 'accessory'];
 /** The slots of a men's look in the Studio. */
 export const MEN_SLOTS: Slot[] = ['main', 'bottom', 'waistcoat', 'layer', 'footwear', 'accessory'];
 export const ALL_SLOTS: Slot[] = [...SLOTS, 'waistcoat', 'accessory', 'layer'];
+/** Slots that take more than one piece in a Studio look (earrings + rings + a bracelet; a watch + belt + cufflinks), and how many. */
+export const MULTI_SLOTS: Partial<Record<Slot, number>> = { jewelry: 3, accessory: 3 };
+/** How many pieces a Studio look may have in a slot. */
+export const maxPieces = (slot: Slot) => MULTI_SLOTS[slot] ?? 1;
 /** A Studio look's slots, by gender. */
 export const slotsFor = (g: Gender | undefined): Slot[] => (g === 'male' ? MEN_SLOTS : WOMEN_GAME_SLOTS);
 
@@ -106,6 +111,26 @@ export interface User {
   photoUpdatedAt?: string;
   /** Optional 3D avatar face, built in the browser from a selfie. Removable any time. */
   avatar?: AvatarFace;
+  /** When the player clicked the link in the verification email (needed before the first AI preview) */
+  emailVerifiedAt?: string;
+  /** SHA-256 of the latest verification link's token (the token itself is only in the email) */
+  verifyTokenHash?: string;
+  verifySentAt?: string;
+  /** SHA-256 of the password-reset link's token, and when that link stops working */
+  resetTokenHash?: string;
+  resetExpiresAt?: string;
+  /** AI previews earned on top of the free ones (a published look reaching enough likes) */
+  previewCredits?: number;
+  /** Unique, lower-case name shown on the Runway (older accounts pick one when they next sign in) */
+  username?: string;
+  /** The player whose share link brought this player in */
+  referredBy?: string;
+  /** Set once this player's first published look has been counted for whoever invited them */
+  referralCounted?: boolean;
+  /** Friends who joined from this player's link and published a look */
+  referrals?: number;
+  /** Previews earned from those friends (capped) */
+  referralCredits?: number;
 }
 
 export interface AvatarFace {
@@ -229,7 +254,14 @@ export interface Challenge {
   gender?: Gender;
   /** A seasonal brief: only pieces for that season (or any season) can be chosen */
   season?: Season;
-  source: 'seed' | 'search';
+  /** A player's own brief: only these price tiers (absent = any) */
+  tiers?: Tier[];
+  /** A player's own brief: only these brands, where they have pieces for the slot (absent = every brand) */
+  brandIds?: string[];
+  /** A player's own brief: the outfit costs at most this (PKR) */
+  maxPrice?: number;
+  /** seed: ships with the app; search: from stylist searches; custom: a player's own brief (never listed) */
+  source: 'seed' | 'search' | 'custom';
   /** How many stylist searches asked for this */
   asks: number;
   createdAt: string;
@@ -249,6 +281,8 @@ export interface Design {
   createdAt: string;
   /** A draft is private to its designer until they publish it. Absent = published. */
   status?: 'draft' | 'published';
+  /** This look has already earned its designer a preview credit */
+  creditEarned?: boolean;
   /** The AI image of the look on a model, if the designer previewed it */
   previewId?: string;
 }
@@ -258,7 +292,7 @@ export interface AppNotification {
   id: string;
   /** Who it is for */
   userId: string;
-  type: 'like' | 'comment' | 'reply';
+  type: 'like' | 'comment' | 'reply' | 'friend';
   /** Who did it */
   actorId: string;
   designId: string;
@@ -270,6 +304,17 @@ export interface AppNotification {
 }
 
 /** An AI-made image of a look on a model (or the fixed base model photo it is made from). */
+/**
+ * How many AI previews an email address has used, kept when the account is deleted (only a hash of the
+ * address, never the address), so deleting and signing up again does not reset the free previews.
+ */
+export interface PreviewUsage {
+  /** sha256 of the lower-cased email */
+  id: string;
+  used: number;
+  updatedAt: string;
+}
+
 export interface PreviewImage {
   id: string;
   /** Absent on the shared base model photos */

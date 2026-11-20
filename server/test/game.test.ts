@@ -5,6 +5,7 @@ import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { RulesLlm } from '../src/services/llm.js';
 import { minModestyFor } from '../src/services/modesty.js';
 import { modestAnswers } from './fixtures.js';
+import { signUp } from './helpers.js';
 
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -17,7 +18,7 @@ beforeAll(async () => {
 let n = 0;
 async function player() {
   const agent = request.agent(app);
-  const res = await agent.post('/api/auth/signup').send({ email: `player${++n}@example.com`, password: 'correct-horse-9', name: 'Player', consent: true });
+  const res = await signUp(agent, { email: `player${++n}@example.com`, password: 'correct-horse-9', name: 'Player', consent: true });
   expect(res.status).toBe(201);
   return agent;
 }
@@ -117,8 +118,20 @@ describe("men's styling", () => {
 });
 
 describe('dress-up game', () => {
-  it('needs an account but not the quiz, and ships with seeded challenges', async () => {
-    expect((await request(app).get('/api/game/challenges')).status).toBe(401);
+  it('the Studio needs an account (made with a confirmed email); visitors only learn whether previews are on', async () => {
+    const guest = request(app);
+    await guest.get('/api/game/challenges').expect(401);
+    await guest.get('/api/game/challenges/seed-mehndi-mustard').expect(401);
+    await guest.get('/api/game/challenges/seed-mehndi-mustard/items').expect(401);
+    await guest.get('/api/game/challenges/seed-mehndi-mustard/pieces?slot=main').expect(401);
+    expect((await guest.get('/api/game/preview').expect(200)).body).not.toHaveProperty('status');
+    await guest.post('/api/game/designs').send({ challengeId: 'seed-mehndi-mustard', items: [] }).expect(401);
+    await guest.post('/api/game/designs/any/preview').expect(401);
+    await guest.post('/api/game/designs/any/publish').expect(401);
+    await guest.get('/api/game/designs/mine').expect(401);
+  });
+
+  it('needs no quiz, and ships with seeded challenges', async () => {
     const agent = await player();
     const res = await agent.get('/api/game/challenges');
     expect(res.status).toBe(200);

@@ -18,9 +18,15 @@ import { createCatalogStore } from './services/catalogStore.js';
 import { liveStock } from './services/liveStock.js';
 import { ALL_SLOTS, OCCASIONS, SLOTS, slotsFor, type AvatarFace, type Occasion, type Product } from './types.js';
 import { seedIfEmpty } from './data/seedDb.js';
-import { BODY_SIZES, deletePreviews, previewDesign, previewEnabled } from './services/preview.js';
+import { BUDGETS, COLOUR_FAMILIES, COVERAGES, makeBrief } from './services/brief.js';
+import { BODY_SIZES, deletePreviews, previewDesign, previewEnabled, previewStatus } from './services/preview.js';
+import { confirmEmail, devLink, forgotPassword, resetPassword, sendVerification } from './services/accounts.js';
+import { usernameCheck } from './services/usernames.js';
 import { challengeCovers, liveCounts, showcase, FEED_SORTS, listNotifications, markNotificationsRead, playerProfile, unreadCount, weekly } from './services/game.js';
 import { addComment, deleteComment, deleteGameData, feed, feedLook, gamePieces, PIECE_SORTS, gameItems, isPublished, listComments, publishDesign, hydrateDesigns, listChallenges, loadChallenge, nextDesignToRate, publicChallenge, seedChallenges, submitDesign, voteDesign } from './services/game.js';
+
+/** How many Runway looks a visitor without an account can see. */
+export const GUEST_PEEK = 4;
 
 export interface AppOptions {
   repos: Repos;
@@ -78,10 +84,13 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     if (!p) throw new AppError(409, 'Complete the taste quiz first');
     return p;
   };
-  const publicUser = (u: { id: string; email: string; name: string; photo?: string; photoUpdatedAt?: string; avatar?: AvatarFace }) => ({
+  const publicUser = (u: { id: string; email: string; name: string; username?: string; photo?: string; photoUpdatedAt?: string; avatar?: AvatarFace; emailVerifiedAt?: string }) => ({
     id: u.id,
     email: u.email,
     name: u.name,
+    /** Shown on the Runway; null for older accounts until they pick one */
+    username: u.username ?? null,
+    emailVerified: Boolean(u.emailVerifiedAt),
     // The photo itself is fetched from /api/me/photo; this version string busts the browser cache on change.
     photoVersion: u.photo ? (u.photoUpdatedAt ?? '1') : null,
     avatarVersion: u.avatar ? u.avatar.updatedAt : null,
@@ -96,24 +105,87 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     email: z.string().email().max(120).transform((s) => s.toLowerCase().trim()),
     password: z.string().min(8).max(100),
     name: z.string().trim().min(1).max(60),
+    username: z.string().max(40),
     consent: z.literal(true, { message: 'Please accept the privacy terms to continue' }),
+    /** The id of the player whose share link brought this person here */
+    ref: z.string().max(80).optional(),
   });
+
+  /** A username for this player, or a 400/409 with the reason in plain words. */
+  const claimUsername = async (raw: string, userId?: string) => {
+    const check = await usernameCheck(repos, raw, userId);
+    if (!check.available) throw new AppError(/taken/.test(check.reason ?? '') ? 409 : 400, check.reason ?? 'Please choose another username.');
+    return check.username;
+  };
+  /** The database refuses a second account with the same username even if two sign-ups race. */
+  const taken = (e: unknown) => (e as { code?: number })?.code === 11000;
 
   app.post('/api/auth/signup', authLimiter, async (req, res) => {
     const body = signupSchema.parse(req.body);
-    if (await repos.users.findOne({ email: body.email })) throw new AppError(409, 'An account with this email already exists');
+    if (await repos.users.findOne({ email: body.email })) throw new AppError(409, 'An account with this email already exists. Sign in instead.');
+    const username = await claimUsername(body.username);
+    const referrer = body.ref ? await repos.users.findOne({ id: body.ref }) : null;
     const now = new Date().toISOString();
     const user = {
       id: uid(),
       email: body.email,
       name: body.name,
+      username,
       passwordHash: await bcrypt.hash(body.password, 10),
       consentAt: now,
       createdAt: now,
+      ...(referrer ? { referredBy: referrer.id } : {}),
     };
-    await repos.users.insert(user);
+    try {
+      await repos.users.insert(user);
+    } catch (e) {
+      if (taken(e)) throw new AppError(409, 'That username or email was just taken. Try another.');
+      throw e;
+    }
+    // Confirming the email is the last step of creating the account: the player is signed in by the
+    // link in the email (POST /api/auth/verify), once, and never asked again.
+    const url = await sendVerification(repos, user, { force: true }).catch((e) => void console.warn('Verification email failed:', (e as Error).message));
+    res.status(201).json({ pending: true, email: user.email, ...(devLink(url ?? undefined) ? { devLink: devLink(url ?? undefined) } : {}) });
+  });
+
+  /* ---------------------- email: verify, forgot, reset ---------------------- */
+  const tokenSchema = z.string().min(20).max(200);
+  app.post('/api/auth/verify', authLimiter, async (req, res) => {
+    const { token } = z.object({ token: tokenSchema }).parse(req.body);
+    const user = await confirmEmail(repos, token);
+    // The link finishes creating the account, so it also signs the player in.
     setAuthCookie(res, user.id);
-    res.status(201).json({ user: publicUser(user) });
+    res.json({ user: publicUser(user) });
+  });
+
+  // A new confirmation link, asked for by email (the player cannot sign in until confirmed).
+  // Same answer whether or not the email has an account.
+  app.post('/api/auth/verify/resend', authLimiter, async (req, res) => {
+    const { email } = z.object({ email: z.string().email().max(120).transform((x) => x.toLowerCase().trim()) }).parse(req.body);
+    const user = await repos.users.findOne({ email });
+    const url = user && !user.emailVerifiedAt ? await sendVerification(repos, user).catch(() => undefined) : undefined;
+    res.json({ ok: true, ...(devLink(url) ? { devLink: devLink(url) } : {}) });
+  });
+
+  // Is a username free? Checked as the player types it.
+  app.get('/api/auth/username', optionalAuth, async (req, res) => {
+    const { name } = z.object({ name: z.string().max(40) }).parse(req.query);
+    res.set('Cache-Control', 'no-store');
+    res.json(await usernameCheck(repos, name, res.locals.userId ?? undefined));
+  });
+
+  // Same answer whether or not the email has an account.
+  app.post('/api/auth/forgot', authLimiter, async (req, res) => {
+    const { email } = z.object({ email: z.string().email().max(120).transform((x) => x.toLowerCase().trim()) }).parse(req.body);
+    const url = await forgotPassword(repos, email).catch((e) => void console.warn('Reset email failed:', (e as Error).message));
+    res.json({ ok: true, ...(devLink(url ?? undefined) ? { devLink: devLink(url ?? undefined) } : {}) });
+  });
+
+  app.post('/api/auth/reset', authLimiter, async (req, res) => {
+    const body = z.object({ token: tokenSchema, password: z.string().min(8, 'Use at least 8 characters').max(100) }).parse(req.body);
+    const user = await resetPassword(repos, body.token, body.password);
+    setAuthCookie(res, user.id);
+    res.json({ user: publicUser(user) });
   });
 
   app.post('/api/auth/login', authLimiter, async (req, res) => {
@@ -123,6 +195,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     const user = await repos.users.findOne({ email: body.email });
     const ok = user ? await bcrypt.compare(body.password, user.passwordHash) : false;
     if (!user || !ok) throw new AppError(401, 'Email or password is incorrect');
+    if (!user.emailVerifiedAt) throw new AppError(403, 'Please confirm your email first: open the link we sent you. Need a new one? Press "Send the link again".');
     setAuthCookie(res, user.id);
     res.json({ user: publicUser(user) });
   });
@@ -135,6 +208,11 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   app.get('/api/me', requireAuth, async (_req, res) => {
     const user = await repos.users.findOne({ id: uidOf(res) });
     if (!user) throw new AppError(401, 'Please sign in');
+    // An account made before email confirmation existed signs in again and confirms once.
+    if (!user.emailVerifiedAt) {
+      res.clearCookie(COOKIE, { path: '/' });
+      throw new AppError(401, 'Please sign in and confirm your email');
+    }
     const profile = await repos.profiles.findOne({ id: user.id });
     res.json({
       user: publicUser(user),
@@ -147,8 +225,18 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   });
 
   app.patch('/api/me', requireAuth, async (req, res) => {
-    const body = z.object({ name: z.string().trim().min(1, 'Please enter your name').max(80) }).parse(req.body);
-    await repos.users.update({ id: uidOf(res) }, { name: body.name });
+    const body = z
+      .object({ name: z.string().trim().min(1, 'Please enter your name').max(80).optional(), username: z.string().max(40).optional() })
+      .parse(req.body);
+    const changes: { name?: string; username?: string } = {};
+    if (body.name) changes.name = body.name;
+    if (body.username !== undefined) changes.username = await claimUsername(body.username, uidOf(res));
+    try {
+      await repos.users.update({ id: uidOf(res) }, changes);
+    } catch (e) {
+      if (taken(e)) throw new AppError(409, 'That username was just taken. Try another.');
+      throw e;
+    }
     const user = await repos.users.findOne({ id: uidOf(res) });
     res.json({ user: publicUser(user!) });
   });
@@ -354,7 +442,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     res.json(showcaseCache.body);
   });
 
-  // The dress-up game needs an account but not the quiz, so new players can start straight away.
+  // The dress-up game needs an account (made with a confirmed email) but not the quiz.
   app.get('/api/game/challenges', requireAuth, async (_req, res) => {
     const [challenges, cover] = await Promise.all([listChallenges(repos), covers()]);
     res.json({ challenges: challenges.map((c) => ({ ...c, cover: cover.get(c.id) ?? null })) });
@@ -392,6 +480,28 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     }
     res.set('Cache-Control', 'public, max-age=600');
     res.json(cached.body);
+  });
+
+  // "What's on your mind today?": the player's own brief becomes a private challenge, with the brands that fit it.
+  const briefSchema = z.object({
+    text: z.string().trim().max(300).optional(),
+    gender: z.enum(['female', 'male']),
+    occasion: z.enum(OCCASIONS as [Occasion, ...Occasion[]]).optional(),
+    colour: z.enum(COLOUR_FAMILIES).optional(),
+    budget: z.enum(BUDGETS).optional(),
+    coverage: z.enum(COVERAGES).optional(),
+    brands: z.array(z.string().max(80)).max(30).optional(),
+  });
+  app.post('/api/game/briefs', requireAuth, chatLimiter, async (req, res) => {
+    const body = briefSchema.parse(req.body);
+    if (!body.text && !body.occasion && !body.colour && !body.budget && !body.coverage) throw new AppError(400, 'Tell us what is on your mind, or pick an occasion');
+    res.json(await makeBrief(repos, llm, await catalog(), body));
+  });
+
+  // One challenge, set or a player's own brief (a resumed or remixed look opens its own).
+  app.get('/api/game/challenges/:id', requireAuth, async (req, res) => {
+    const challenge = await loadChallenge(repos, String(req.params.id));
+    res.json({ challenge: publicChallenge(challenge, 0) });
   });
 
   app.get('/api/game/challenges/:id/items', requireAuth, async (req, res) => {
@@ -436,8 +546,10 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   });
 
   // The AI preview of a draft on a model: is it switched on, make one (about half a minute), show one.
-  app.get('/api/game/preview', requireAuth, (_req, res) => {
-    res.json({ enabled: previewEnabled() });
+  // Is the preview on, and (signed in) how many the player has left and what, if anything, stops them.
+  app.get('/api/game/preview', optionalAuth, async (_req, res) => {
+    const userId = res.locals.userId as string | null;
+    res.json({ enabled: previewEnabled(), ...(userId && previewEnabled() ? { status: await previewStatus(repos, userId) } : {}) });
   });
 
   app.post('/api/game/designs/:id/preview', requireAuth, previewLimiter, async (req, res) => {
@@ -478,12 +590,18 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
 
   /* ------------------------------ My taste feed ------------------------------ */
   // Everyone's published looks, newest first (signed-in players only).
-  app.get('/api/feed', requireAuth, async (req, res) => {
+  // Guests get a peek: the first few looks only, then an invitation to sign in for the rest.
+  app.get('/api/feed', optionalAuth, async (req, res) => {
+    const userId = res.locals.userId as string | null;
     const before = typeof req.query.before === 'string' ? req.query.before : undefined;
     const gender = req.query.gender === 'male' || req.query.gender === 'female' ? req.query.gender : undefined;
     const sort = z.enum(FEED_SORTS).optional().parse(req.query.sort);
     const occasion = z.enum(OCCASIONS as [Occasion, ...Occasion[]]).optional().parse(req.query.occasion || undefined);
-    res.json(await feed(repos, uidOf(res), before, { gender, occasion }, sort));
+    if (!userId) {
+      const first = await feed(repos, '', undefined, { gender, occasion }, sort);
+      return res.json({ looks: first.looks.slice(0, GUEST_PEEK), next: null, guest: true });
+    }
+    res.json(await feed(repos, userId, before, { gender, occasion }, sort));
   });
 
   // Live like and comment counts for the looks on screen (polled by the Runway and look pages).

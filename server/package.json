@@ -12,7 +12,8 @@
     "test:mongo": "vitest run test/mongo.contract.test.ts",
     "catalog:fetch": "tsx src/catalog/fetch.ts",
     "catalog:import": "tsx src/catalog/import.ts",
-    "catalog:sync": "tsx src/catalog/fetch.ts && tsx src/catalog/import.ts"
+    "catalog:sync": "tsx src/catalog/fetch.ts && tsx src/catalog/import.ts",
+    "previews:compress": "tsx src/db/compressPreviews.ts"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +32,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.8.0",
     "saleeqa": "file:..",
+    "sharp": "^0.34.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {

@@ -10,6 +10,13 @@ async function main() {
   if (!config.mongoUri) {
     console.warn('MONGODB_URI is not set: using the in-memory demo store. Data resets on restart.');
   }
+  if (config.isProd && (config.email.provider === 'log' || !config.email.apiKey)) {
+    console.warn(
+      'EMAIL IS NOT SET UP: set EMAIL_PROVIDER, EMAIL_API_KEY and EMAIL_FROM. Until then no verification or ' +
+        'password-reset email is sent, so players cannot confirm their email or make AI previews.',
+    );
+  }
+  if (config.preview.off) console.warn('AI previews are switched off for everyone (PREVIEWS_OFF=true).');
   const llm = createLlm();
   const app = await createApp({ repos, llm });
   const server = app.listen(config.port, () => {

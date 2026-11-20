@@ -10,6 +10,7 @@
  */
 import { createHash } from 'node:crypto';
 import { GoogleAuth } from 'google-auth-library';
+import sharp from 'sharp';
 import { config } from '../config.js';
 import type { Repos } from '../db/index.js';
 import { AppError } from '../errors.js';
@@ -33,7 +34,7 @@ const PIECE: Record<Slot, string> = {
   bag: 'the bag (held in one hand or on the shoulder)',
   jewelry: 'the jewellery',
   waistcoat: 'the waistcoat (worn over the outfit)',
-  accessory: 'the accessory',
+  accessory: 'the accessory (a watch, sunglasses, a belt, cufflinks or similar)',
   layer: 'the coat / jacket / sweater (worn open or closed over the outfit)',
 };
 
@@ -121,9 +122,9 @@ const STYLING: Partial<Record<Slot, string>> = {
   layer: 'Wear the coat or sweater over the outfit, open or neatly closed, with the outfit still visible underneath; the sleeves sit naturally.',
   waistcoat: 'Wear the waistcoat buttoned over the kurta, the kurta hem showing below it.',
   bag: 'Carry the bag naturally in one hand or on the shoulder, in view.',
-  jewelry: 'Wear the jewellery where it belongs (earrings on the ears, a necklace at the neck), clearly visible.',
+  jewelry: 'Wear every jewellery piece shown where it belongs (earrings on the ears, a necklace at the neck, a ring on a finger, bangles on the wrist), clearly visible.',
   footwear: 'The shoes are fully visible on the feet.',
-  accessory: 'Show the accessory worn the way it is meant to be (a watch on the wrist, a shawl on the shoulders).',
+  accessory: 'Show every accessory worn the way it is meant to be (a watch on the wrist, sunglasses on the face or held, a belt at the waist, cufflinks at the cuffs, a shawl on the shoulders).',
 };
 
 /** How menswear is worn: crisp and well fitted, the way a groom's stylist would send him out. */
@@ -140,7 +141,8 @@ function lookPrompt(gender: Gender, mood: string, slots: Slot[], included: { bot
   const notes = [
     included.bottom && 'The outfit photo includes its own trousers/bottom: use those.',
     included.dupatta && 'The outfit photo includes its own dupatta: drape that one gracefully over the shoulders.',
-    ...slots.map((s) => STYLING[s]),
+    // Several jewellery pieces or accessories share one styling note.
+    ...[...new Set(slots)].map((s) => STYLING[s]),
     ...(gender === 'male' ? MENSWEAR : []),
     !slots.includes('jewelry') && gender === 'female' && 'She wears no jewellery at all.',
     !slots.includes('bag') && gender === 'female' && 'She carries no bag.',
@@ -202,6 +204,22 @@ async function callGemini(parts: unknown[]): Promise<{ mime: string; data: strin
   return { mime: img.mimeType ?? 'image/png', data: img.data };
 }
 
+/**
+ * Gemini returns a PNG of 1.2 to 1.7 MB; as WebP at quality 90 it is about 60 KB and keeps the fabric
+ * texture and embroidery (quality 80 smoothed knits). Previews live in the database, so this keeps a free Atlas tier from filling up. A model photo
+ * is sent back to Gemini with every look, so it keeps more detail. If the image cannot be read, the
+ * original is kept rather than losing a paid image.
+ */
+export async function compressImage(img: { mime: string; data: string }, quality = 90): Promise<{ mime: string; data: string }> {
+  try {
+    const out = await sharp(Buffer.from(img.data, 'base64')).webp({ quality, smartSubsample: true, preset: 'photo', effort: 5 }).toBuffer();
+    return { mime: 'image/webp', data: out.toString('base64') };
+  } catch (e) {
+    console.warn('AI preview: could not compress an image, keeping it as it came:', (e as Error).message);
+    return img;
+  }
+}
+
 /** A product photo, small enough to send (Shopify serves resized images on request). */
 async function productPhoto(p: Product): Promise<{ mimeType: string; data: string }> {
   const src = p.images?.[0];
@@ -218,7 +236,7 @@ async function baseModel(repos: Repos, gender: Gender, variant: number, size: Bo
   const id = `base-${CAST}-${gender}-${variant}-${size}`;
   const existing = await repos.previews.findOne({ id });
   if (existing) return existing;
-  const img = await callGemini([{ text: basePrompt(gender, MODELS[gender][variant], size) }]);
+  const img = await compressImage(await callGemini([{ text: basePrompt(gender, MODELS[gender][variant], size) }]), 95);
   return repos.previews.upsert({ id, key: id, mime: img.mime, data: img.data, at: new Date().toISOString() });
 }
 
@@ -252,11 +270,28 @@ export async function previewDesign(repos: Repos, userId: string, designId: stri
   const cached = await repos.previews.findOne({ key });
   if (cached) return (await repos.designs.update({ id: d.id }, { previewId: cached.id }))!;
 
-  const since = new Date(Date.now() - DAY).toISOString();
-  const today = (await repos.events.find({ userId, type: 'preview' })).filter((e) => e.at > since).length;
-  if (today >= config.preview.dailyLimit) {
-    throw new AppError(429, `You have used today’s ${config.preview.dailyLimit} previews. You can still publish your look, or preview again tomorrow.`);
+  // One new image at a time per player: two quick taps (or two tabs) must not both slip past the limit.
+  if (making.has(userId)) throw new AppError(429, 'Your last preview is still being made. Please wait for it to finish.');
+  making.add(userId);
+  try {
+    return await makePreview(repos, userId, d, { key, gender, variant, size, occasion: challenge ? OCCASION_WORDS[challenge.occasion] : undefined });
+  } finally {
+    making.delete(userId);
   }
+}
+
+/** Players whose preview is being made right now (this server). */
+const making = new Set<string>();
+
+async function makePreview(
+  repos: Repos,
+  userId: string,
+  d: Design,
+  o: { key: string; gender: Gender; variant: number; size: BodySize; occasion?: string },
+): Promise<Design> {
+  const { key, gender, variant, size } = o;
+  const status = await previewStatus(repos, userId);
+  if (status.blocked) throw new AppError(status.blocked === 'verify' ? 403 : 429, status.message!);
 
   const products = await repos.products.find({ id: { $in: d.items.map((i) => i.productId) } });
   const byId = new Map(products.map((p) => [p.id, p]));
@@ -277,15 +312,83 @@ export async function previewDesign(repos: Repos, userId: string, designId: stri
       pieces.map((x) => x.slot),
       { bottom: Boolean(main.includesBottom), dupatta: Boolean(main.includesDupatta) },
       size,
-      challenge ? OCCASION_WORDS[challenge.occasion] : undefined,
+      o.occasion,
     ),
   });
 
-  const img = await callGemini(parts);
+  const img = await compressImage(await callGemini(parts));
   const at = new Date().toISOString();
   const saved = await repos.previews.insert({ id: uid(), userId, key, variant, size, mime: img.mime, data: img.data, at });
   await repos.events.insert({ id: uid(), userId, type: 'preview', lookId: d.id, at });
+  await recordUsage(repos, userId, at);
   return (await repos.designs.update({ id: d.id }, { previewId: saved.id }))!;
+}
+
+export type PreviewBlock = 'off' | 'verify' | 'used-up' | 'player-today' | 'everyone-today';
+
+/** What players see when previews are switched off or a daily limit is set to 0. */
+export const RESTING = 'Previews are resting for today. Publish your look now.';
+
+/** The key a player's preview count is kept under: a hash of their email, never the email itself. */
+export const emailKey = (email: string) => createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+
+/** Notes one more preview against the player's email, so deleting the account does not reset it. */
+async function recordUsage(repos: Repos, userId: string, at: string) {
+  const user = await repos.users.findOne({ id: userId });
+  if (!user) return;
+  const id = emailKey(user.email);
+  const [kept, total] = await Promise.all([repos.previewUsage.findOne({ id }), repos.events.count({ userId, type: 'preview' })]);
+  await repos.previewUsage.upsert({ id, used: Math.max(total, (kept?.used ?? 0) + 1), updatedAt: at });
+}
+
+/**
+ * What a player may still preview. A new image costs money, so it is limited several ways:
+ * - for life: the free previews every account gets, plus those earned by inviting friends (game.ts). Previews
+ *   are counted per email too, so a deleted and re-made account does not start again;
+ * - per player per day (no bursts), and across all players per day, so one busy night cannot spend
+ *   the Google credit; PREVIEWS_OFF=true, or a limit of 0, switches new previews off;
+ * - a verified email comes first, so fake accounts cannot farm the free ones.
+ * A look already previewed is shown again for free and never reaches this.
+ */
+export async function previewStatus(repos: Repos, userId: string) {
+  const { free, dailyLimit, globalDailyCap, requireVerifiedEmail, friendsForCredit, friendCreditCap, off } = config.preview;
+  const user = await repos.users.findOne({ id: userId });
+  const since = new Date(Date.now() - DAY).toISOString();
+  const [mine, today, everyone, kept] = await Promise.all([
+    repos.events.count({ userId, type: 'preview' }),
+    repos.events.count({ userId, type: 'preview', at: { $gt: since } }),
+    repos.events.count({ type: 'preview', at: { $gt: since } }),
+    user ? repos.previewUsage.findOne({ id: emailKey(user.email) }) : null,
+  ]);
+  const used = Math.max(mine, kept?.used ?? 0);
+  const earned = user?.previewCredits ?? 0;
+  const left = Math.max(0, free + earned - used);
+  const verified = Boolean(user?.emailVerifiedAt) || !requireVerifiedEmail;
+  let blocked: PreviewBlock | null = null;
+  let message: string | null = null;
+  if (off || dailyLimit === 0 || globalDailyCap === 0) {
+    blocked = 'off';
+    message = RESTING;
+  } else if (!verified) {
+    blocked = 'verify';
+    message = 'Please confirm your email first: we sent you a link. It unlocks your free previews.';
+  } else if (left <= 0) {
+    blocked = 'used-up';
+    message =
+      (user?.referralCredits ?? 0) >= friendCreditCap
+        ? 'You have used all your free previews. You can still publish your look.'
+        : `You have used your free preview. Get another for every ${friendsForCredit} friends who join from your share link and publish a look. You can still publish yours.`;
+  } else if (today >= dailyLimit) {
+    blocked = 'player-today';
+    message = `You have made ${dailyLimit} previews today. Come back tomorrow for more. You can still publish your look.`;
+  } else if (everyone >= globalDailyCap) {
+    blocked = 'everyone-today';
+    message = 'So many people are previewing today that we have reached today’s limit. Come back tomorrow! You can still publish your look.';
+  }
+  const friends = user?.referrals ?? 0;
+  // Friends still needed for the next earned preview (0 once the cap is reached).
+  const friendsToGo = (user?.referralCredits ?? 0) >= friendCreditCap ? 0 : friendsForCredit - (friends % friendsForCredit);
+  return { verified, left, free, earned, used, friends, friendsForCredit, friendsToGo, blocked, message };
 }
 
 /** Part of "delete my data". */

@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { RulesLlm } from '../src/services/llm.js';
+import { signUp } from './helpers.js';
 
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -16,7 +17,7 @@ beforeAll(async () => {
 let n = 0;
 async function player(name: string) {
   const agent = request.agent(app);
-  expect((await agent.post('/api/auth/signup').send({ email: `social${++n}@example.com`, password: 'correct-horse-9', name, consent: true })).status).toBe(201);
+  expect((await signUp(agent, { email: `social${++n}@example.com`, password: 'correct-horse-9', name, consent: true })).status).toBe(201);
   return agent;
 }
 
@@ -61,13 +62,13 @@ describe('notifications', () => {
     const mine = (await ayesha.get('/api/notifications')).body;
     expect(mine.unread).toBe(2);
     expect(mine.notifications.map((x: any) => [x.type, x.by])).toEqual([
-      ['comment', 'Bilal'],
-      ['like', 'Bilal'],
+      ['comment', expect.stringMatching(/^bilal_\d+$/)],
+      ['like', expect.stringMatching(/^bilal_\d+$/)],
     ]);
     expect(mine.notifications[0]).toMatchObject({ lookId: look, text: 'Love the khussa!', read: false });
     expect(mine.notifications[0].lookTitle).toMatch(/Mehndi/);
     const his = (await bilal.get('/api/notifications')).body;
-    expect(his.notifications).toEqual([expect.objectContaining({ type: 'reply', by: 'Ayesha', text: 'Thank you!' })]);
+    expect(his.notifications).toEqual([expect.objectContaining({ type: 'reply', by: expect.stringMatching(/^ayesha_\d+$/), text: 'Thank you!' })]);
 
     // Opening the bell marks them read.
     await ayesha.post('/api/notifications/read');
@@ -132,13 +133,14 @@ describe('shared links', () => {
     const visitor = request(app);
     const res = await visitor.get(`/api/feed/${look}`);
     expect(res.status).toBe(200);
-    expect(res.body.look).toMatchObject({ id: look, by: 'Zara', mine: false, myVote: null, comments: 1 });
+    expect(res.body.look).toMatchObject({ id: look, by: expect.stringMatching(/^zara_\d+$/), mine: false, myVote: null, comments: 1 });
     const comments = (await visitor.get(`/api/game/designs/${look}/comments`)).body.comments;
     expect(comments).toEqual([expect.objectContaining({ text: 'My Mehndi pick', mine: false, canDelete: false })]);
     // Liking or commenting still needs an account.
     expect((await visitor.post(`/api/game/designs/${look}/vote`).send({ up: true })).status).toBe(401);
     expect((await visitor.post(`/api/game/designs/${look}/comments`).send({ text: 'hi' })).status).toBe(401);
-    expect((await visitor.get('/api/feed')).status).toBe(401);
+    // The Runway itself is only a peek for visitors: a few looks, no further pages.
+    expect((await visitor.get('/api/feed')).body).toMatchObject({ guest: true, next: null });
   });
 });
 

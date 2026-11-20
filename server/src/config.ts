@@ -2,6 +2,14 @@ import 'dotenv/config';
 
 const isProd = process.env.NODE_ENV === 'production';
 
+/** A whole number from the environment; 0 means 0 (e.g. "previews off"), and empty or not a number means the default. */
+export function envCount(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 4000),
   isProd,
@@ -26,7 +34,29 @@ export const config = {
     location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
     model: process.env.PREVIEW_MODEL || 'gemini-3-pro-image',
     /** New images a player may generate per 24 hours (a look already previewed is free). */
-    dailyLimit: Number(process.env.PREVIEW_DAILY_LIMIT) || 10,
+    dailyLimit: envCount('PREVIEW_DAILY_LIMIT', 10),
+    /** Previews every account gets for life, before any are earned */
+    free: envCount('PREVIEW_FREE', 1),
+    /** One more preview for every this many friends who join from the player's share link and publish a look */
+    friendsForCredit: Math.max(1, envCount('PREVIEW_FRIENDS_FOR_CREDIT', 3)),
+    /** Most previews one player can ever earn from friends */
+    friendCreditCap: envCount('PREVIEW_FRIEND_CREDIT_CAP', 5),
+    /** New images across all players per 24 hours: one busy night cannot spend the Google credit (0 = none) */
+    globalDailyCap: envCount('PREVIEW_GLOBAL_DAILY_CAP', 300),
+    /** The emergency switch: PREVIEWS_OFF=true stops new previews for everyone (publishing still works) */
+    off: process.env.PREVIEWS_OFF === 'true',
+    /** A verified email is needed before the first preview (fake accounts cannot farm free previews) */
+    requireVerifiedEmail: process.env.PREVIEW_REQUIRE_VERIFIED_EMAIL !== 'false',
+  },
+  /**
+   * Account emails (verification, password reset). resend or brevo with an API key; without one,
+   * emails are printed to the server log (fine on a laptop, not for real players).
+   */
+  email: {
+    provider: (process.env.EMAIL_PROVIDER || 'log') as 'resend' | 'brevo' | 'log',
+    apiKey: process.env.EMAIL_API_KEY ?? '',
+    /** "Saleeqa <hello@your-domain.com>": an address the provider has verified */
+    from: process.env.EMAIL_FROM || 'Saleeqa <hello@saleeqa.pk>',
   },
 };
 

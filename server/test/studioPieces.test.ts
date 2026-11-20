@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { RulesLlm } from '../src/services/llm.js';
+import { signUp } from './helpers.js';
 
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -13,7 +14,7 @@ beforeAll(async () => {
   repos = createMemoryRepos();
   app = await createApp({ repos, llm: new RulesLlm(), rateLimit: false });
   agent = request.agent(app);
-  expect((await agent.post('/api/auth/signup').send({ email: 'pieces@example.com', password: 'correct-horse-9', name: 'Hira', consent: true })).status).toBe(201);
+  expect((await signUp(agent, { email: 'pieces@example.com', password: 'correct-horse-9', name: 'Hira', consent: true })).status).toBe(201);
 });
 
 const pieces = (query: Record<string, string | number>) => agent.get(`/api/game/challenges/${C}/pieces`).query(query);
@@ -87,7 +88,7 @@ describe('a look on its own page', () => {
     await agent.post(`/api/game/designs/${draft.id}/publish`);
     const res = await agent.get(`/api/feed/${draft.id}`);
     expect(res.status).toBe(200);
-    expect(res.body.look).toMatchObject({ id: draft.id, by: 'Hira', mine: true, myVote: null, comments: 0 });
+    expect(res.body.look).toMatchObject({ id: draft.id, by: expect.stringMatching(/^hira_\d+$/), mine: true, myVote: null, comments: 0 });
     expect(res.body.look.items.length).toBe(items.length);
   });
 });

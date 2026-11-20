@@ -4,6 +4,8 @@ import { createApp } from '../src/app.js';
 import { createMemoryRepos, type Repos } from '../src/db/index.js';
 import { RulesLlm } from '../src/services/llm.js';
 import { FEED_PAGE } from '../src/services/game.js';
+import { GUEST_PEEK } from '../src/app.js';
+import { signUp } from './helpers.js';
 
 let repos: Repos;
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -15,7 +17,7 @@ beforeAll(async () => {
 let n = 0;
 async function player(name = 'Ayesha Khan') {
   const agent = request.agent(app);
-  await agent.post('/api/auth/signup').send({ email: `feed${++n}@example.com`, password: 'correct-horse-9', name, consent: true });
+  await signUp(agent, { email: `feed${++n}@example.com`, password: 'correct-horse-9', name, consent: true });
   return agent;
 }
 
@@ -38,15 +40,29 @@ describe('My taste feed', () => {
     const newer = await publishLook(sana);
     await publishLook(sana, true); // a private draft
 
-    expect((await request(app).get('/api/feed')).status).toBe(401);
     const res = await ayesha.get('/api/feed');
     expect(res.status).toBe(200);
     const ids = res.body.looks.map((l: any) => l.id);
     expect(ids.slice(0, 2)).toEqual([newer, older]);
     expect(ids).toHaveLength(2);
     const mine = res.body.looks.find((l: any) => l.id === older);
-    expect(mine).toMatchObject({ by: 'Ayesha', mine: true, myVote: null, comments: 0 });
+    expect(mine).toMatchObject({ by: expect.stringMatching(/^ayesha_\d+$/), mine: true, myVote: null, comments: 0 });
     expect(JSON.stringify(res.body)).not.toMatch(/Khan|@example\.com|userId/);
+  });
+
+  it('gives visitors without an account a peek: the first 4 looks, no more pages', async () => {
+    const busy = await player();
+    for (let i = 0; i < GUEST_PEEK + 2; i++) await publishLook(busy);
+    const res = await request(app).get('/api/feed?sort=new');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ guest: true, next: null });
+    expect(res.body.looks).toHaveLength(GUEST_PEEK);
+    expect(res.body.looks.every((l: any) => l.mine === false && l.myVote === null)).toBe(true);
+    // Asking for a later page as a guest still returns only the first looks.
+    const later = await request(app).get('/api/feed?sort=new&before=9999-01-01T00:00:00.000Z%7Cz');
+    expect(later.body.looks.map((l: any) => l.id)).toEqual(res.body.looks.map((l: any) => l.id));
+    // Liking still needs an account.
+    await request(app).post(`/api/game/designs/${res.body.looks[0].id}/vote`).send({ up: true }).expect(401);
   });
 
   it('lets players like, dislike, change or take back their vote, on their own look too', async () => {
@@ -75,7 +91,7 @@ describe('My taste feed', () => {
 
     // The designer can comment on their own look.
     const top = (await owner.post(`/api/game/designs/${id}/comments`).send({ text: 'Styled this for Eid' })).body.comments[0];
-    expect(top).toMatchObject({ by: 'Hira', parentId: null });
+    expect(top).toMatchObject({ by: expect.stringMatching(/^hira_\d+$/), parentId: null });
     const r1 = await fan.post(`/api/game/designs/${id}/comments`).send({ text: 'Gorgeous', parentId: top.id });
     expect(r1.status).toBe(201);
     const reply = r1.body.comments.find((c: any) => c.text === 'Gorgeous');
@@ -108,7 +124,7 @@ describe('My taste feed', () => {
     expect((await fan.post(`/api/game/designs/${id}/comments`).send({ text: 'x'.repeat(301) })).status).toBe(400);
     const added = await fan.post(`/api/game/designs/${id}/comments`).send({ text: '  Love   the khussa with this!  ' });
     expect(added.status).toBe(201);
-    expect(added.body.comments).toEqual([expect.objectContaining({ by: 'Zara', text: 'Love the khussa with this!', mine: true, canDelete: true })]);
+    expect(added.body.comments).toEqual([expect.objectContaining({ by: expect.stringMatching(/^zara_\d+$/), text: 'Love the khussa with this!', mine: true, canDelete: true })]);
     await stranger.post(`/api/game/designs/${id}/comments`).send({ text: 'Nice' });
 
     const seen = (await owner.get(`/api/game/designs/${id}/comments`)).body.comments;
@@ -138,7 +154,13 @@ describe('My taste feed', () => {
     const firstIds = new Set(first.looks.map((l: any) => l.id));
     expect(second.looks.some((l: any) => firstIds.has(l.id))).toBe(false);
     // Every look appears exactly once across the pages, even ones made in the same millisecond.
-    const total = (await busy.get('/api/feed')).body.looks.length + second.looks.length;
-    expect(total).toBe((await repos.designs.find()).filter((d) => d.status !== 'draft').length);
+    const seen: string[] = [];
+    for (let page = (await busy.get('/api/feed')).body; ; ) {
+      seen.push(...page.looks.map((l: any) => l.id));
+      if (!page.next) break;
+      page = (await busy.get(`/api/feed?before=${encodeURIComponent(page.next)}`)).body;
+    }
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen.length).toBe((await repos.designs.find()).filter((d) => d.status !== 'draft').length);
   });
 });
