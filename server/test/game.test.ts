@@ -26,13 +26,14 @@ async function player() {
 type P = { id: string; price: number; brandId: string; colors: string[]; modesty: number; includesBottom: boolean; includesDupatta: boolean; silhouette: string };
 
 /** The cheapest valid design for a challenge, built the way the game's sidebar builds it. */
-function cheapestDesign(items: Record<string, P[]>, wantsDupatta: boolean) {
+function cheapestDesign(items: Record<string, P[]>, wantsDupatta: boolean, required: string[] = []) {
   const cheapest = (slot: string) => [...items[slot]].sort((a, b) => a.price - b.price)[0];
   const main = cheapest('main');
   const pick = [{ slot: 'main', productId: main.id }];
   if (!main.includesBottom) pick.push({ slot: 'bottom', productId: cheapest('bottom').id });
   if (wantsDupatta && !main.includesDupatta) pick.push({ slot: 'dupatta', productId: cheapest('dupatta').id });
   pick.push({ slot: 'footwear', productId: cheapest('footwear').id });
+  for (const slot of required) if (!pick.some((x) => x.slot === slot)) pick.push({ slot, productId: cheapest(slot).id });
   return { main, pick };
 }
 
@@ -144,7 +145,7 @@ describe('dress-up game', () => {
     for (const c of (await agent.get('/api/game/challenges')).body.challenges) {
       const { body } = await agent.get(`/api/game/challenges/${c.id}/items`);
       expect(body.items.main.length, c.id).toBeGreaterThan(0);
-      const { pick } = cheapestDesign(body.items, c.wantsDupatta);
+      const { pick } = cheapestDesign(body.items, c.wantsDupatta, c.required);
       const res = await agent.post('/api/game/designs').send({ challengeId: c.id, items: pick });
       expect(res.status, `${c.id}: ${res.body.error}`).toBe(201);
     }

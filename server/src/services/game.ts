@@ -49,8 +49,8 @@ export const LAUNCH: Array<Omit<Challenge, 'id' | 'key' | 'source' | 'asks' | 'c
   { slug: 'launch-nikkah', gender: 'male', title: 'Nikkah: shalwar kameez and waistcoat', occasion: 'walima', colors: [], coverage: 1, wantsDupatta: false, required: ['waistcoat'], silhouettes: ['shalwar kameez', 'kurta'], prize: LAUNCH_PRIZE, launch: true },
 ];
 
-/** Until the launch week ends, the launch challenges are the featured ones. */
-export const launchOn = (now = Date.now()) => now < Date.parse(config.launchEnds);
+/** During the launch (LAUNCH_STARTS to LAUNCH_ENDS), the launch challenges are the featured ones. */
+export const launchOn = (now = Date.now()) => now >= Date.parse(config.launchStarts) && now < Date.parse(config.launchEnds);
 
 /** Ships with the app so the game has challenges before the stylist launches. */
 const SEED: Array<Omit<Challenge, 'id' | 'key' | 'source' | 'asks' | 'createdAt'> & { slug: string }> = [

@@ -63,7 +63,11 @@ export const config = {
     /** What one new preview image costs, in US dollars (for the admin portal's spending figures) */
     costUsd: Number(process.env.PREVIEW_COST_USD) || 0.13,
   },
-  /** The launch challenges are featured first until this moment (default: a week after launch, 27 Nov 2026) */
+  /**
+   * The launch challenges are featured first from LAUNCH_STARTS until LAUNCH_ENDS. Defaults: from the week
+   * before the public launch (27 Nov 2026, so the team can try them first) until a week after it.
+   */
+  launchStarts: process.env.LAUNCH_STARTS || '2026-11-16T00:00:00+05:00',
   launchEnds: process.env.LAUNCH_ENDS || '2026-12-04T23:59:59+05:00',
   /**
    * Account emails (verification, password reset). resend or brevo with an API key; without one,
