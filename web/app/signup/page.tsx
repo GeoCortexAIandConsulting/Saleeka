@@ -1,12 +1,13 @@
 'use client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Header from '@/components/Header';
 import AuthShell from '@/components/AuthShell';
 import DevLink from '@/components/DevLink';
 import UsernameField, { type UsernameState } from '@/components/UsernameField';
 import { toast } from '@/components/Toaster';
-import { api } from '@/lib/api';
+import { api, nextPath } from '@/lib/api';
 import { readRef } from '@/lib/ref';
 
 /**
@@ -14,6 +15,7 @@ import { readRef } from '@/lib/ref';
  * confirmation email, which finishes the account and signs the player in (once, never again).
  */
 export default function Signup() {
+  const router = useRouter();
   const [form, setForm] = useState({ name: '', username: '', email: '', password: '' });
   const [consent, setConsent] = useState(false);
   const [nameState, setNameState] = useState<UsernameState>('empty');
@@ -34,8 +36,13 @@ export default function Signup() {
     setError('');
     setBusy(true);
     try {
-      const r = await api<{ email: string; devLink?: string }>('/auth/signup', { body: { ...form, username: form.username.trim().replace(/^@/, ''), consent, ref: readRef() } });
-      setSentTo(r.email);
+      const r = await api<{ email?: string; devLink?: string; user?: unknown }>('/auth/signup', { body: { ...form, username: form.username.trim().replace(/^@/, ''), consent, ref: readRef() } });
+      // Email confirmation switched off: the account is ready and signed in.
+      if (r.user) {
+        router.replace(nextPath('/studio'));
+        return;
+      }
+      setSentTo(r.email ?? form.email);
       setDevLink(r.devLink ?? null);
     } catch (err: any) {
       setError(err.message);

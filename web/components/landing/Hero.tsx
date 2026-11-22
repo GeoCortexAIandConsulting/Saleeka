@@ -70,6 +70,12 @@ export default function Hero() {
             <Link href="/signup" className="btn btn-primary !px-8 !py-4 text-base">Start styling, it’s free</Link>
             <a href="#try" className="btn btn-ghost !px-8 !py-4 text-base">Try a look first ↓</a>
           </div>
+          <p className="mt-4 text-sm text-ink/75">
+            Are you a brand?{' '}
+            <Link href="/brand/apply" className="font-semibold text-plum underline-offset-4 hover:underline">
+              Create a brand account →
+            </Link>
+          </p>
           <ul className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink/65">
             {['Real pieces, real brands', 'Women’s and men’s looks', 'Prices in PKR', 'Modest-friendly'].map((t) => (
               <li key={t} className="flex items-center gap-2">

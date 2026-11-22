@@ -70,10 +70,14 @@ export default function Header({ signedIn = true }: { signedIn?: boolean }) {
             </div>
           ) : (
             <nav className="flex items-center gap-2 text-sm">
-              <Link href="/login" className="rounded-full px-3 py-2 hover:bg-sand">
+              {/* Phones keep just the two player buttons; brands find their way in from the page. */}
+              <Link href="/brand/apply" className="hidden rounded-full px-3 py-2 text-ink/80 hover:bg-sand md:block">
+                For brands
+              </Link>
+              <Link href="/login" className="whitespace-nowrap rounded-full px-3 py-2 hover:bg-sand">
                 Sign in
               </Link>
-              <Link href="/signup" className="btn btn-primary !py-2">
+              <Link href="/signup" className="btn btn-primary whitespace-nowrap !py-2">
                 Get started
               </Link>
             </nav>

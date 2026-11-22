@@ -240,7 +240,7 @@ export function ForBrands() {
   const points = [
     { t: 'Styled by shoppers', b: 'Your pieces worn in complete looks, put together by the people who buy them.' },
     { t: 'Clicks to your shop', b: 'Every brand name links to the product on your own site, and every click is counted.' },
-    { t: 'A monthly report', b: 'Which pieces get styled, liked and clicked, so you know what people want next.' },
+    { t: 'Your own dashboard', b: 'Add pieces one by one or from a spreadsheet, and see which get styled, liked and clicked.' },
     { t: 'A free 90-day pilot', b: 'Join while we’re early and help shape what we build.' },
   ];
   return (
@@ -251,7 +251,11 @@ export function ForBrands() {
         <div className="reveal">
           <Eyebrow light>For brands</Eyebrow>
           <h2 className="mt-4 text-5xl font-semibold leading-[1] sm:text-6xl">Your pieces, styled by the people who shop them.</h2>
-          <a href="mailto:partners@saleeqa.example" className="btn btn-light mt-9">Partner with us</a>
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <Link href="/brand/apply" className="btn btn-light">Create a brand account</Link>
+            <Link href="/login" className="btn btn-outline-light">Brand sign in</Link>
+          </div>
+          <p className="mt-3 text-sm text-white/75">Our team reviews every application, usually within two working days.</p>
         </div>
         <ul className="reveal grid gap-px overflow-hidden rounded-3xl border border-white/15 bg-white/15 sm:grid-cols-2">
           {points.map((p) => (
@@ -310,15 +314,53 @@ export function Finale() {
             Your first look is a few <span className="italic text-gold-light">minutes away.</span>
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-lg text-white/75">
-            Create a free account and style your first look in minutes.
+            Create a free account: style looks as a player, or show your pieces as a brand.
           </p>
-          <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link href="/signup" className="btn btn-light !px-8 !py-4 text-base">Start styling, it’s free</Link>
-            <Link href="/login" className="btn btn-outline-light !px-8 !py-4 text-base">I have an account</Link>
-          </div>
+          <AccountChoice />
         </div>
       </div>
     </section>
+  );
+}
+
+/** Two ways in: a player account (to style looks) or a brand account (to show your pieces). */
+function AccountChoice() {
+  const options = [
+    {
+      title: 'I’m here to style',
+      body: 'Build complete looks from real pieces, share them on the Runway, and get likes and comments.',
+      cta: 'Create my account',
+      href: '/signup',
+      signIn: '/login',
+      note: 'Free, ready in a minute',
+    },
+    {
+      title: 'I’m a brand',
+      body: 'Put your pieces in front of shoppers styling complete looks, and see what they pick, like and click.',
+      cta: 'Create a brand account',
+      href: '/brand/apply',
+      signIn: '/login',
+      note: 'Reviewed by our team first',
+    },
+  ];
+  return (
+    <ul className="mx-auto mt-10 grid max-w-3xl gap-4 text-left sm:grid-cols-2">
+      {options.map((o) => (
+        <li key={o.href} className="flex flex-col rounded-3xl border border-white/20 bg-white/[0.06] p-6 backdrop-blur-sm">
+          <h3 className="text-3xl font-semibold text-gold-light">{o.title}</h3>
+          <p className="mt-2 flex-1 text-sm leading-relaxed text-white/80">{o.body}</p>
+          <Link href={o.href} className="btn btn-light mt-5 w-full">
+            {o.cta}
+          </Link>
+          <p className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-white/75">
+            <span>{o.note}</span>
+            <Link href={o.signIn} className="flex min-h-[32px] items-center font-semibold text-white underline-offset-4 hover:underline">
+              Sign in
+            </Link>
+          </p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -335,6 +377,7 @@ export function Footer() {
         <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6 text-sm text-ink/80">
           <Link href="/signup" className="flex min-h-[44px] items-center hover:text-ink">Get started</Link>
           <Link href="/login" className="flex min-h-[44px] items-center hover:text-ink">Sign in</Link>
+          <Link href="/brand/apply" className="flex min-h-[44px] items-center hover:text-ink">For brands</Link>
           <Link href="/credits" className="flex min-h-[44px] items-center hover:text-ink">Photo credits</Link>
         </nav>
       </div>
