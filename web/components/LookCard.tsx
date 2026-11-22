@@ -88,14 +88,14 @@ export default function LookCard({ look, rank, onSelect, selected, onSave, onSwa
         /* A colour strip gives the look an at-a-glance identity */
         <div className="mb-3 flex h-3 overflow-hidden rounded-full border border-line">
           {look.items.map((i) => (
-            <div key={i.slot} style={{ background: i.product.hex, flex: i.slot === 'main' ? 3 : 1 }} />
+            <div key={`${i.slot}-${i.product.id}`} style={{ background: i.product.hex, flex: i.slot === 'main' ? 3 : 1 }} />
           ))}
         </div>
       )}
 
       <ul className="divide-y divide-line">
         {look.items.map(({ slot, product }) => (
-          <li key={slot} className="flex items-center gap-3 py-2.5">
+          <li key={`${slot}-${product.id}`} className="flex items-center gap-3 py-2.5">
             {product.images?.[0] ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img

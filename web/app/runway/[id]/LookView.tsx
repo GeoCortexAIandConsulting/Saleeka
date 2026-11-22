@@ -200,7 +200,7 @@ export default function LookView({ id }: { id: string }) {
                 </div>
                 <ul className="mt-3 space-y-2.5">
                   {look.items.map(({ slot, product: p }) => (
-                    <li key={slot} className={`flex items-center gap-3 rounded-2xl border border-line p-2.5 ${soldOut(p) ? 'bg-sand/60' : 'bg-white'}`}>
+                    <li key={`${slot}-${p.id}`} className={`flex items-center gap-3 rounded-2xl border border-line p-2.5 ${soldOut(p) ? 'bg-sand/60' : 'bg-white'}`}>
                       {p.images?.[0] ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={p.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-20 w-16 shrink-0 rounded-xl object-cover object-top" style={{ background: p.hex }} />

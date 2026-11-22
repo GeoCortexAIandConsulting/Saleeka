@@ -61,7 +61,7 @@ export default function TryOn({ look, onClose }: { look: Look; onClose: () => vo
           <aside className="space-y-4 p-5">
             <ul className="space-y-2.5">
               {look.items.map(({ slot, product }) => (
-                <li key={slot} className="flex items-center gap-3">
+                <li key={`${slot}-${product.id}`} className="flex items-center gap-3">
                   {product.images?.[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={product.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-12 w-9 shrink-0 rounded-lg border border-line object-cover object-top" style={{ background: product.hex }} />

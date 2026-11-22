@@ -74,9 +74,9 @@ export default function LookTile({ look, onChange }: { look: FeedLook; onChange:
           {look.items.slice(0, 5).map(({ slot, product }) =>
             product.images?.[0] ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img key={slot} src={product.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-10 w-10 rounded-lg border border-line object-cover object-top" style={{ background: product.hex }} />
+              <img key={`${slot}-${product.id}`} src={product.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-10 w-10 rounded-lg border border-line object-cover object-top" style={{ background: product.hex }} />
             ) : (
-              <span key={slot} className="h-10 w-10 rounded-lg border border-line" style={{ background: product.hex }} />
+              <span key={`${slot}-${product.id}`} className="h-10 w-10 rounded-lg border border-line" style={{ background: product.hex }} />
             ),
           )}
           <span className="ml-auto whitespace-nowrap text-xs font-semibold text-plum">Shop the look ›</span>
