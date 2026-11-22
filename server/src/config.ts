@@ -48,6 +48,8 @@ export const config = {
     /** A verified email is needed before the first preview (fake accounts cannot farm free previews) */
     requireVerifiedEmail: process.env.PREVIEW_REQUIRE_VERIFIED_EMAIL !== 'false',
   },
+  /** The launch challenges are featured first until this moment (default: a week after launch, 27 Nov 2026) */
+  launchEnds: process.env.LAUNCH_ENDS || '2026-12-04T23:59:59+05:00',
   /**
    * Account emails (verification, password reset). resend or brevo with an API key; without one,
    * emails are printed to the server log (fine on a laptop, not for real players).

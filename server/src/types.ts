@@ -260,6 +260,18 @@ export interface Challenge {
   brandIds?: string[];
   /** A player's own brief: the outfit costs at most this (PKR) */
   maxPrice?: number;
+  /** A set challenge's own name ("Nikkah: shalwar kameez and waistcoat"); absent = made from its brief */
+  title?: string;
+  /** The whole look must cost at most this (PKR); pieces dearer than this are not offered */
+  budget?: number;
+  /** Pieces this challenge asks for on top of the usual ones (a coat for a winter wedding) */
+  required?: Slot[];
+  /** Only these kinds of outfit (menswear: 'shalwar kameez', 'kurta') */
+  silhouettes?: string[];
+  /** What the top-voted look wins */
+  prize?: string;
+  /** A launch challenge: featured first until the launch week ends */
+  launch?: boolean;
   /** seed: ships with the app; search: from stylist searches; custom: a player's own brief (never listed) */
   source: 'seed' | 'search' | 'custom';
   /** How many stylist searches asked for this */

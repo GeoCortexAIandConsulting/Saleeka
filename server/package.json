@@ -13,7 +13,8 @@
     "catalog:fetch": "tsx src/catalog/fetch.ts",
     "catalog:import": "tsx src/catalog/import.ts",
     "catalog:sync": "tsx src/catalog/fetch.ts && tsx src/catalog/import.ts",
-    "previews:compress": "tsx src/db/compressPreviews.ts"
+    "previews:compress": "tsx src/db/compressPreviews.ts",
+    "challenges:check": "tsx src/catalog/challengesCheck.ts"
   },
   "keywords": [],
   "author": "",

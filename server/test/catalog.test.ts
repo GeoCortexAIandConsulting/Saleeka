@@ -208,8 +208,14 @@ describe('tagging real catalog items', () => {
 
   it('turns product codes into readable titles', () => {
     const p = ok(raw({ title: 'SS23BSP226F', productType: 'Ready to Wear', text: 'Colour: Maroon\nFabric: Khaddar' }));
-    expect(p.title).toBe('maroon khaddar kurta');
-    expect(displayTitle('SHIRT (E2376/108/001)', 'white', 'cotton', 'kurta')).toBe('Shirt');
+    expect(p.title).toBe('Maroon Khaddar Kurta');
+    expect(displayTitle('SHIRT (E2376/108/001)', 'white', 'cotton', 'kurta')).toBe('White Shirt');
+    // Shop labels around a "|", and names of one vague word.
+    expect(displayTitle('Rts | Blended', 'grey', 'blended', 'shalwar kameez')).toBe('Grey Blended Shalwar Kameez');
+    expect(displayTitle('Rtw | Kurta & Trouser', 'white', 'cotton', 'kurta')).toBe('Kurta & Trouser');
+    expect(displayTitle('Embroidered Waistcoat | Premium Collection Maroon', 'maroon', 'jacquard', 'waistcoat')).toBe('Embroidered Waistcoat');
+    expect(displayTitle('Loafers', 'black', 'leather', 'loafers')).toBe('Black Loafers');
+    expect(displayTitle('Black', 'black', 'cotton', 'trouser')).toBe('Black Trouser');
     expect(displayTitle('Dark Beige Women Shawl-1721512118', 'beige', 'cotton', 'shawl')).toBe('Dark Beige Women Shawl');
     expect(displayTitle('2 PIECE - PRINTED SUIT - ST2STE-PRET26WV2-64', 'maroon', 'linen', 'suit')).toBe('2 Piece Printed Suit');
     expect(displayTitle('Grey Lawn Kurti | JLK-SS26-104', 'grey', 'lawn', 'kurta')).toBe('Grey Lawn Kurti');

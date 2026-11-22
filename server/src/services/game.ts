@@ -37,6 +37,20 @@ const OCCASION_LABEL: Record<Occasion, string> = {
   party: 'Party',
 };
 
+export const LAUNCH_PRIZE = 'Top-voted look wins a PKR 10,000 voucher';
+
+/** The launch challenges: wedding season, featured first until the launch week ends. */
+export const LAUNCH: Array<Omit<Challenge, 'id' | 'key' | 'source' | 'asks' | 'createdAt'> & { slug: string }> = [
+  { slug: 'launch-mehndi', title: 'Mehndi look under PKR 20,000', occasion: 'mehndi', colors: [], coverage: 3, wantsDupatta: true, budget: 20000, prize: LAUNCH_PRIZE, launch: true },
+  { slug: 'launch-baraat-guest', title: 'Baraat guest look under PKR 35,000', occasion: 'baraat', colors: [], coverage: 3, wantsDupatta: true, budget: 35000, prize: LAUNCH_PRIZE, launch: true },
+  { slug: 'launch-walima-modest', title: 'Walima look, modest', occasion: 'walima', colors: [], coverage: 4, wantsDupatta: true, prize: LAUNCH_PRIZE, launch: true },
+  { slug: 'launch-winter-wedding', title: 'Winter wedding with a shawl or coat', occasion: 'baraat', colors: [], coverage: 3, wantsDupatta: false, season: 'winter', required: ['layer'], prize: LAUNCH_PRIZE, launch: true },
+  { slug: 'launch-nikkah', gender: 'male', title: 'Nikkah: shalwar kameez and waistcoat', occasion: 'walima', colors: [], coverage: 1, wantsDupatta: false, required: ['waistcoat'], silhouettes: ['shalwar kameez', 'kurta'], prize: LAUNCH_PRIZE, launch: true },
+];
+
+/** Until the launch week ends, the launch challenges are the featured ones. */
+export const launchOn = (now = Date.now()) => now < Date.parse(config.launchEnds);
+
 /** Ships with the app so the game has challenges before the stylist launches. */
 const SEED: Array<Omit<Challenge, 'id' | 'key' | 'source' | 'asks' | 'createdAt'> & { slug: string }> = [
   { slug: 'mehndi-mustard', occasion: 'mehndi', colors: ['mustard', 'lemon'], coverage: 3, wantsDupatta: true },
@@ -65,10 +79,12 @@ const SEED: Array<Omit<Challenge, 'id' | 'key' | 'source' | 'asks' | 'createdAt'
   { slug: 'men-casual', gender: 'male', occasion: 'casual', colors: [], coverage: 1, wantsDupatta: false },
   { slug: 'men-winter-casual', gender: 'male', occasion: 'casual', colors: [], coverage: 1, wantsDupatta: false, season: 'winter' },
   { slug: 'men-winter-wedding', gender: 'male', occasion: 'baraat', colors: ['black', 'maroon', 'navy', 'brown', 'grey'], coverage: 1, wantsDupatta: false, season: 'winter' },
+  // Launch week (from 27 Nov 2026): wedding season, featured first, with a prize for the top-voted look.
+  ...LAUNCH,
 ];
 
 /** One key per kind of request, so repeat searches count up the same challenge. */
-export function challengeKey(c: Pick<Challenge, 'occasion' | 'colors' | 'coverage' | 'wantsDupatta' | 'gender' | 'season' | 'tiers' | 'brandIds' | 'maxPrice'>): string {
+export function challengeKey(c: Pick<Challenge, 'occasion' | 'colors' | 'coverage' | 'wantsDupatta' | 'gender' | 'season' | 'tiers' | 'brandIds' | 'maxPrice' | 'budget' | 'required' | 'silhouettes' | 'launch'>): string {
   const key = [c.occasion, [...c.colors].sort().join('+') || 'any', c.coverage, c.wantsDupatta ? 'dupatta' : '-'];
   return [
     ...key,
@@ -78,6 +94,11 @@ export function challengeKey(c: Pick<Challenge, 'occasion' | 'colors' | 'coverag
     ...(c.tiers?.length ? [`tiers=${[...c.tiers].sort().join('+')}`] : []),
     ...(c.brandIds?.length ? [`brands=${[...c.brandIds].sort().join('+')}`] : []),
     ...(c.maxPrice ? [`max=${c.maxPrice}`] : []),
+    // A set challenge's own rules make it a different challenge too.
+    ...(c.budget ? [`budget=${c.budget}`] : []),
+    ...(c.required?.length ? [`needs=${[...c.required].sort().join('+')}`] : []),
+    ...(c.silhouettes?.length ? [`kinds=${[...c.silhouettes].sort().join('+')}`] : []),
+    ...(c.launch ? ['launch'] : []),
   ].join('|');
 }
 
@@ -114,6 +135,7 @@ export async function recordSearchChallenge(repos: Repos, profile: Profile, c: C
 }
 
 export function challengeTitle(c: Challenge): string {
+  if (c.title) return c.title;
   const colours = c.colors.length ? ` · ${c.colors.slice(0, 3).join(', ')}${c.colors.length > 3 ? ' or similar' : ''}` : '';
   const occasion = c.season ? `${c.season === 'winter' ? 'Winter' : 'Summer'} ${OCCASION_LABEL[c.occasion].toLowerCase()}` : OCCASION_LABEL[c.occasion];
   return `${occasion} ${genderOf(c) === 'male' ? 'look' : 'outfit'}${colours}`;
@@ -139,6 +161,10 @@ export function publicChallenge(c: Challenge, designs: number) {
     tiers: c.tiers ?? [],
     brandIds: c.brandIds ?? [],
     maxPrice: c.maxPrice ?? null,
+    budget: c.budget ?? null,
+    required: c.required ?? [],
+    // The prize line shows while the launch is on.
+    prize: c.prize && launchOn() ? c.prize : null,
     asks: c.asks,
     designs,
   };
@@ -187,7 +213,9 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT, 
   // A player's own brief can name brands: those brands' pieces only, unless none of them sells that
   // kind of piece (a clothing brand with no shoes), then every brand's.
   const brands = c.brandIds?.length ? new Set(c.brandIds) : null;
-  const priceOk = (p: Product) => !c.maxPrice || p.slot !== 'main' || p.price <= c.maxPrice;
+  // A brief's outfit price, and a challenge's whole-look budget: no single piece can cost more.
+  const priceOk = (p: Product) => (!c.maxPrice || p.slot !== 'main' || p.price <= c.maxPrice) && (!c.budget || p.price <= c.budget);
+  const kindOk = (p: Product) => !c.silhouettes?.length || c.silhouettes.includes(p.silhouette);
   const festive = FORMAL_OCCASIONS.includes(c.occasion);
   // Best fit for the challenge first, not cheapest first: the order nudges what players pick, and
   // their picks teach the stylist. Outfits: mainly the asked colour, then dressier for festive briefs.
@@ -211,7 +239,7 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT, 
   const colourOk = (p: Product) => !c.colors.length || p.colors.some((col) => c.colors.includes(col));
   if (gender === 'male') {
     return {
-      main: of('main', (p) => p.occasions.includes(c.occasion) && colourOk(p)),
+      main: of('main', (p) => p.occasions.includes(c.occasion) && colourOk(p) && kindOk(p)),
       bottom: of('bottom'),
       waistcoat: of('waistcoat', (p) => p.occasions.includes(c.occasion) || !FORMAL_OCCASIONS.includes(c.occasion)),
       layer: of('layer', (p) => p.occasions.includes(c.occasion)),
@@ -221,6 +249,7 @@ export function gameItems(catalog: Product[], c: Challenge, perSlot = PER_SLOT, 
   }
   return {
     main: of('main', (p) =>
+      kindOk(p) &&
       p.modesty >= minModesty &&
       p.occasions.includes(c.occasion) &&
       (!c.colors.length || p.colors.some((col) => c.colors.includes(col))) &&
@@ -340,16 +369,21 @@ type Rule = 'required' | 'optional' | 'included';
 /** Which slots a look needs, given its main piece: a suit may bring its own bottom (and dupatta). */
 export function slotRules(main: Product, c: Challenge): Partial<Record<Slot, Rule>> {
   const bottom: Rule = main.includesBottom ? 'included' : 'required';
-  if (genderOf(c) === 'male') return { bottom, waistcoat: 'optional', layer: 'optional', footwear: 'required', accessory: 'optional' };
-  return {
-    bottom,
-    dupatta: main.includesDupatta ? 'included' : c.wantsDupatta ? 'required' : 'optional',
-    layer: 'optional',
-    footwear: 'required',
-    bag: 'optional',
-    jewelry: 'optional',
-    accessory: 'optional',
-  };
+  const rules: Partial<Record<Slot, Rule>> =
+    genderOf(c) === 'male'
+      ? { bottom, waistcoat: 'optional', layer: 'optional', footwear: 'required', accessory: 'optional' }
+      : {
+          bottom,
+          dupatta: main.includesDupatta ? 'included' : c.wantsDupatta ? 'required' : 'optional',
+          layer: 'optional',
+          footwear: 'required',
+          bag: 'optional',
+          jewelry: 'optional',
+          accessory: 'optional',
+        };
+  // A challenge can ask for more (a coat for a winter wedding, a waistcoat for a nikkah).
+  for (const slot of c.required ?? []) if (rules[slot] === 'optional') rules[slot] = 'required';
+  return rules;
 }
 
 const SLOT_WORD: Partial<Record<Slot, string>> = { footwear: 'shoes', jewelry: 'jewellery', layer: 'a coat or jacket', accessory: 'accessories' };
@@ -387,6 +421,9 @@ export async function submitDesign(
   }
   const pieces = [...chosen].flatMap(([slot, ps]) => ps.map((p) => ({ slot, p })));
   const total = pieces.reduce((n, x) => n + x.p.price, 0);
+  if (c.budget && total > c.budget) {
+    throw new AppError(400, `This look costs Rs ${total.toLocaleString('en-PK')}, over the Rs ${c.budget.toLocaleString('en-PK')} budget. Swap a piece for a cheaper one.`);
+  }
 
   const design: Design = {
     id: uid(),
@@ -762,11 +799,12 @@ export const weekEnds = (now = Date.now()) => new Date(WEEK_ZERO + (weekIndex(no
  * A seasonal brief is only featured in its season.
  */
 function rotation(gender: Gender, now: number) {
-  return SEED.filter((c) => genderOf(c) === gender && !offSeason(c, new Date(now))).map((c) => `seed-${c.slug}`);
+  return SEED.filter((c) => genderOf(c) === gender && !c.launch && !offSeason(c, new Date(now))).map((c) => `seed-${c.slug}`);
 }
 
 /** This week's featured challenge for women and for men. Everyone sees the same ones all week. */
 export function featuredIds(now = Date.now()): string[] {
+  if (launchOn(now)) return LAUNCH.map((c) => `seed-${c.slug}`);
   return (['female', 'male'] as Gender[]).map((g) => {
     const ids = rotation(g, now);
     return ids[weekIndex(now) % ids.length];
@@ -779,7 +817,9 @@ const isFeatured = (c: Pick<Challenge, 'id'>) => featuredIds().includes(c.id);
  * looks made for them this week (the board people play to top).
  */
 export async function weekly(repos: Repos, viewerId: string) {
-  const start = new Date(WEEK_ZERO + weekIndex() * WEEK_MS).toISOString();
+  // During the launch, the board is the launch challenges' looks since they opened, until the launch ends.
+  const launch = launchOn();
+  const start = launch ? '2000-01-01T00:00:00.000Z' : new Date(WEEK_ZERO + weekIndex() * WEEK_MS).toISOString();
   const ids = featuredIds();
   const challenges = await repos.challenges.find({ id: { $in: ids } });
   const designs = (await repos.designs.find({ challengeId: { $in: ids } })).filter((d) => isPublished(d) && d.createdAt >= start);
@@ -787,7 +827,8 @@ export async function weekly(repos: Repos, viewerId: string) {
   for (const d of designs) count.set(d.challengeId, (count.get(d.challengeId) ?? 0) + 1);
   designs.sort((a, b) => b.up - a.up || a.createdAt.localeCompare(b.createdAt));
   return {
-    endsAt: weekEnds(),
+    endsAt: launch ? new Date(config.launchEnds).toISOString() : weekEnds(),
+    launch,
     challenges: ids.map((id) => challenges.find((c) => c.id === id)).filter((c): c is Challenge => Boolean(c)).map((c) => publicChallenge(c, count.get(c.id) ?? 0)),
     top: await feedLooks(repos, viewerId, designs.slice(0, 6)),
   };

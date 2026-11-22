@@ -252,19 +252,38 @@ function seasonsOf(fabric: string, t: string): Product['seasons'] {
  * "2 PIECE - PRINTED SUIT - ST2STE-PRET26WV2-64"): drop them, and calm ALL-CAPS titles. A title that
  * is only a code ("SS23BSP226F") is replaced by a description of the piece.
  */
+const titleCase = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase()).replace(/\b(\d)(Pc|Pcs|Piece)\b/g, '$1 $2');
+
+/**
+ * A readable product name from the shop's title: no stock codes ("JLK-SS26-104"), no shop labels
+ * before or after a "|" ("Rtw | Kurta", "Waistcoat | Executive Collection Navy"), no shouting
+ * capitals, and never a single vague word ("Loafers" becomes "Black Loafers").
+ */
 export function displayTitle(raw: string, color: string, fabric: string, kind: string): string {
   const isCode = (w: string) => /\d/.test(w) && /^[A-Z0-9/_.-]{5,}$/i.test(w) && !/^\d+[- ]?(?:pc|pcs|piece|pieces)$/i.test(w);
-  let t = raw
+  // "Rts | Blended", "Embroidered Waistcoat | Premium Collection Maroon": keep the part that names the piece.
+  const parts = raw.split('|').map((x) => x.trim()).filter(Boolean);
+  const label = (x: string) => /^[a-z]{1,4}$/i.test(x) || /\b(collection|edition|series|season|sale|new arrival)\b/i.test(x) || x.split(/\s+/).every(isCode);
+  let source = parts.length > 1 ? (parts.find((x) => !label(x)) ?? parts[parts.length - 1]) : raw;
+  let t = source
     .replace(/\(([^)]*\d[^)]*)\)/g, ' ') // "(E2376/108/001)"
     .replace(/[-–]\s*\d{6,}\b/g, ' ') // "-1721512118"
     .split(/\s+-\s+|\s+/)
     .filter((w) => w && !isCode(w))
     .join(' ')
-    .replace(/^[\s|–-]+|[\s|–-]+$/g, '') // a separator left behind by a removed code: "Grey Lawn Kurti | JLK-123"
+    .replace(/^[\s|–-]+|[\s|–-]+$/g, '') // a separator left behind by a removed code
     .replace(/\s{2,}/g, ' ')
     .trim();
-  if (!t || !/[a-z]{3,}/i.test(t)) return `${color} ${fabric} ${kind}`.replace(/\s+/g, ' ').trim();
-  if (t === t.toUpperCase()) t = t.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase()).replace(/\b(\d)(Pc|Pcs|Piece)\b/g, '$1 $2');
+  if (!t || !/[a-z]{3,}/i.test(t)) return titleCase(`${color} ${fabric} ${kind}`.replace(/\s+/g, ' ').trim());
+  if (t === t.toUpperCase()) t = titleCase(t);
+  // One word says too little: add the colour, and the kind of piece when the word is only a fabric.
+  const words = t.split(/\s+/).filter((w) => /[a-z]{2,}/i.test(w));
+  if (words.length < 2) {
+    const onlyFabric = t.toLowerCase() === fabric.toLowerCase() || /^(blended|cotton|lawn|khaddar|linen|silk|chiffon|velvet|karandi|wash ?n ?wear|wool|marina|cambric|jacquard)$/i.test(t);
+    const c = color && !t.toLowerCase().includes(color.toLowerCase()) ? `${color} ` : '';
+    const onlyColour = Boolean(color) && t.toLowerCase() === color.toLowerCase();
+    t = titleCase(`${c}${t}${(onlyFabric || onlyColour) && kind ? ` ${kind}` : ''}`);
+  }
   return t;
 }
 
