@@ -9,7 +9,12 @@ import { config } from './config.js';
 import { AppError } from './errors.js';
 import type { Repos, ProfileDoc } from './db/index.js';
 import type { Llm } from './services/llm.js';
-import { COOKIE, optionalAuth, requireAuth, setAuthCookie } from './middleware/auth.js';
+import { COOKIE, isAdmin, optionalAuth, requireAuth, setAuthCookie, setBrandCookie, setSuspended } from './middleware/auth.js';
+import { brandForgot, publicAccount, statusProblem } from './services/brandPortal.js';
+import { adminRoutes } from './routes/admin.js';
+import { brandRoutes } from './routes/brand.js';
+import { deleteAccount, visibleCatalog } from './services/admin.js';
+import { loadSettings, settings } from './services/settings.js';
 import { answersSchema, buildProfile, currentAnswers, publicQuestions, updateProfileAnswers, validateAnswerOptions } from './services/profile.js';
 import { createRound, submitRound, MAX_ROUNDS, QUICK_TAGS } from './services/rounds.js';
 import { handleChat, swapLookItem } from './services/chat.js';
@@ -19,11 +24,11 @@ import { liveStock } from './services/liveStock.js';
 import { ALL_SLOTS, OCCASIONS, SLOTS, slotsFor, type AvatarFace, type Occasion, type Product } from './types.js';
 import { seedIfEmpty } from './data/seedDb.js';
 import { BUDGETS, COLOUR_FAMILIES, COVERAGES, makeBrief } from './services/brief.js';
-import { BODY_SIZES, deletePreviews, previewDesign, previewEnabled, previewStatus } from './services/preview.js';
+import { BODY_SIZES, previewDesign, previewEnabled, previewStatus } from './services/preview.js';
 import { confirmEmail, devLink, forgotPassword, resetPassword, sendVerification } from './services/accounts.js';
 import { usernameCheck } from './services/usernames.js';
 import { challengeCovers, liveCounts, showcase, FEED_SORTS, listNotifications, markNotificationsRead, playerProfile, unreadCount, weekly } from './services/game.js';
-import { addComment, deleteComment, deleteGameData, feed, feedLook, gamePieces, PIECE_SORTS, gameItems, isPublished, listComments, publishDesign, hydrateDesigns, listChallenges, loadChallenge, nextDesignToRate, publicChallenge, seedChallenges, submitDesign, voteDesign } from './services/game.js';
+import { addComment, deleteComment, feed, feedLook, gamePieces, PIECE_SORTS, gameItems, isPublished, listComments, publishDesign, hydrateDesigns, listChallenges, loadChallenge, nextDesignToRate, publicChallenge, seedChallenges, submitDesign, voteDesign } from './services/game.js';
 
 /** How many Runway looks a visitor without an account can see. */
 export const GUEST_PEEK = 4;
@@ -40,10 +45,25 @@ export interface AppOptions {
 export async function createApp({ repos, llm, rateLimit: limit = true, catalogCacheMs }: AppOptions) {
   await seedIfEmpty(repos);
   await seedChallenges(repos);
+  // The admin portal's switches, and the players it suspended (their sessions stop working at once).
+  const loadAdminState = async () => {
+    await loadSettings(repos);
+    setSuspended((await repos.users.find({ suspended: true }, { omit: ['photo', 'avatar', 'passwordHash'] })).map((u) => u.id));
+  };
+  await loadAdminState();
+  if (limit) setInterval(() => loadAdminState().catch((e) => console.warn('Could not reload the admin settings:', e)), 30_000).unref();
   // In-stock pieces, held in memory and swapped in after each catalog sync (see catalogStore.ts).
   const catalogTtl = catalogCacheMs ?? (limit ? 60_000 : 0);
   const store = createCatalogStore(repos, { checkMs: catalogTtl });
-  const catalog = () => store.get();
+  // What players can pick: without the brands and pieces the admin hid (filtered once per change).
+  let shown: { from: Product[]; key: string; list: Product[] } | null = null;
+  const catalog = async () => {
+    const list = await store.get();
+    const s = settings();
+    const key = `${s.hiddenBrandIds.join(',')}|${s.hiddenProductIds.join(',')}`;
+    if (shown?.from !== list || shown.key !== key) shown = { from: list, key, list: visibleCatalog(list) };
+    return shown.list;
+  };
   if (catalogTtl) catalog().catch((e) => console.warn('Could not load the catalogue at start-up:', e)); // warm it before the first visitor
   const app = express();
   if (config.isProd) app.set('trust proxy', 1);
@@ -51,7 +71,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   app.use(cors({ origin: config.webOrigin, credentials: true }));
   // Small bodies everywhere; the profile photo and avatar uploads get their own, larger limits below.
   const smallJson = express.json({ limit: '50kb' });
-  const BIG_BODIES = new Set(['/api/me/photo', '/api/me/avatar']);
+  const BIG_BODIES = new Set(['/api/me/photo', '/api/me/avatar', '/api/brand/items/bulk', '/api/brand/images']);
   app.use((req, res, next) => (BIG_BODIES.has(req.path) ? next() : smallJson(req, res, next)));
   app.use(cookieParser());
 
@@ -142,6 +162,11 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
       if (taken(e)) throw new AppError(409, 'That username or email was just taken. Try another.');
       throw e;
     }
+    // Email confirmation switched off: the account is ready now, and the player is signed in.
+    if (!config.emailConfirmation) {
+      setAuthCookie(res, user.id);
+      return res.status(201).json({ user: publicUser(user) });
+    }
     // Confirming the email is the last step of creating the account: the player is signed in by the
     // link in the email (POST /api/auth/verify), once, and never asked again.
     const url = await sendVerification(repos, user, { force: true }).catch((e) => void console.warn('Verification email failed:', (e as Error).message));
@@ -177,8 +202,13 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   // Same answer whether or not the email has an account.
   app.post('/api/auth/forgot', authLimiter, async (req, res) => {
     const { email } = z.object({ email: z.string().email().max(120).transform((x) => x.toLowerCase().trim()) }).parse(req.body);
-    const url = await forgotPassword(repos, email).catch((e) => void console.warn('Reset email failed:', (e as Error).message));
-    res.json({ ok: true, ...(devLink(url ?? undefined) ? { devLink: devLink(url ?? undefined) } : {}) });
+    // One "forgot password" for everyone: a player and an approved brand with this email each get their own link.
+    const [url, brandUrl] = await Promise.all([
+      forgotPassword(repos, email).catch((e) => void console.warn('Reset email failed:', (e as Error).message)),
+      brandForgot(repos, email).catch((e) => void console.warn('Brand reset email failed:', (e as Error).message)),
+    ]);
+    const link = devLink((url ?? brandUrl) || undefined);
+    res.json({ ok: true, ...(link ? { devLink: link } : {}) });
   });
 
   app.post('/api/auth/reset', authLimiter, async (req, res) => {
@@ -188,16 +218,36 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     res.json({ user: publicUser(user) });
   });
 
+  /**
+   * One sign-in for everyone: an email (or a player's username) and a password are checked against
+   * player accounts and brand accounts, and the answer says which it was, so the page can open the
+   * Studio or the brand dashboard. If the same email and password open both, both sessions start.
+   */
   app.post('/api/auth/login', authLimiter, async (req, res) => {
-    const body = z
-      .object({ email: z.string().email().transform((s) => s.toLowerCase().trim()), password: z.string().min(1).max(100) })
-      .parse(req.body);
-    const user = await repos.users.findOne({ email: body.email });
-    const ok = user ? await bcrypt.compare(body.password, user.passwordHash) : false;
-    if (!user || !ok) throw new AppError(401, 'Email or password is incorrect');
-    if (!user.emailVerifiedAt) throw new AppError(403, 'Please confirm your email first: open the link we sent you. Need a new one? Press "Send the link again".');
-    setAuthCookie(res, user.id);
-    res.json({ user: publicUser(user) });
+    const body = z.object({ email: z.string().trim().min(1, 'Enter your email or username').max(120), password: z.string().min(1).max(100) }).parse(req.body);
+    const id = body.email.toLowerCase().replace(/^@/, '');
+    const byEmail = id.includes('@');
+    const [user, brand] = await Promise.all([repos.users.findOne(byEmail ? { email: id } : { username: id }), byEmail ? repos.brandAccounts.findOne({ email: id }) : null]);
+    const [playerOk, brandOk] = await Promise.all([user ? bcrypt.compare(body.password, user.passwordHash) : false, brand ? bcrypt.compare(body.password, brand.passwordHash) : false]);
+    if (!playerOk && !brandOk) throw new AppError(401, 'Email, username or password is incorrect');
+    const playerProblem = !user || !playerOk ? null
+      : config.emailConfirmation && !user.emailVerifiedAt ? 'Please confirm your email first: open the link we sent you. Need a new one? Press "Send the link again".'
+      : user.suspended ? 'This account has been paused by the Saleeqa team. Please email us if you think this is a mistake.'
+      : null;
+    const brandProblem = brand && brandOk ? statusProblem(brand) : null;
+    const player = playerOk && !playerProblem ? user! : null;
+    const brandIn = brandOk && !brandProblem ? brand! : null;
+    if (!player && !brandIn) throw new AppError(403, (playerProblem ?? brandProblem)!);
+    if (player) setAuthCookie(res, player.id);
+    if (brandIn) {
+      setBrandCookie(res, brandIn.id);
+      await repos.brandAccounts.update({ id: brandIn.id }, { lastLoginAt: new Date().toISOString() });
+    }
+    res.json({
+      kind: player && brandIn ? 'both' : player ? 'player' : 'brand',
+      ...(player ? { user: publicUser(player) } : {}),
+      ...(brandIn ? { account: publicAccount(brandIn) } : {}),
+    });
   });
 
   app.post('/api/auth/logout', (_req, res) => {
@@ -209,10 +259,12 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     const user = await repos.users.findOne({ id: uidOf(res) });
     if (!user) throw new AppError(401, 'Please sign in');
     // An account made before email confirmation existed signs in again and confirms once.
-    if (!user.emailVerifiedAt) {
+    if (config.emailConfirmation && !user.emailVerifiedAt) {
       res.clearCookie(COOKIE, { path: '/' });
       throw new AppError(401, 'Please sign in and confirm your email');
     }
+    // For the admin portal's active-player numbers (written at most every 10 minutes).
+    if (!user.lastActiveAt || Date.now() - Date.parse(user.lastActiveAt) > 10 * 60 * 1000) await repos.users.update({ id: user.id }, { lastActiveAt: new Date().toISOString() });
     const profile = await repos.profiles.findOne({ id: user.id });
     res.json({
       user: publicUser(user),
@@ -306,15 +358,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
 
   // Privacy promise: one call deletes everything we hold about the user (photo and avatar included).
   app.delete('/api/me', requireAuth, async (_req, res) => {
-    const id = uidOf(res);
-    await deleteGameData(repos, id);
-    await deletePreviews(repos, id);
-    await repos.looks.delete({ userId: id });
-    await repos.rounds.delete({ userId: id });
-    await repos.sessions.delete({ userId: id });
-    await repos.events.delete({ userId: id });
-    await repos.profiles.delete({ id });
-    await repos.users.delete({ id });
+    await deleteAccount(repos, uidOf(res));
     res.clearCookie(COOKIE, { path: '/' });
     res.json({ deleted: true });
   });
@@ -564,7 +608,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     const id = String(req.params.id);
     const p = await repos.previews.findOne({ id });
     if (!p || !p.userId) throw new AppError(404, 'Preview not found');
-    if (p.userId !== res.locals.userId) {
+    if (p.userId !== res.locals.userId && !isAdmin(req)) {
       const published = (await repos.designs.find({ previewId: id })).some(isPublished);
       if (!published) throw new AppError(404, 'Preview not found');
     }
@@ -672,7 +716,8 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
 
   /* ----------------------- click-out tracking + partners ----------------------- */
   app.get('/api/brands', async (_req, res) => {
-    res.json({ brands: await repos.brands.find() });
+    const hidden = new Set(settings().hiddenBrandIds);
+    res.json({ brands: (await repos.brands.find()).filter((b) => !hidden.has(b.id)) });
   });
 
   // Every "buy" button goes through here so brands get attributed clicks.
@@ -705,6 +750,12 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
       clickRate: impressions ? Math.round((clicks / impressions) * 1000) / 10 : 0,
     });
   });
+
+  /* -------------------------------- admin portal -------------------------------- */
+  adminRoutes(app, { repos, allInStock: () => store.get(), rateLimit: limit });
+
+  /* -------------------------------- brand portal -------------------------------- */
+  brandRoutes(app, { repos, allInStock: () => store.get(), rateLimit: limit });
 
   /* ---------------------------- errors ---------------------------- */
   app.use('/api', (_req, _res, next) => next(new AppError(404, 'Not found')));

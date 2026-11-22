@@ -39,6 +39,14 @@ services:
       # Emergency switch: set to true to stop new AI previews for everyone (publishing still works).
       - key: PREVIEWS_OFF
         value: "false"
+      # New players sign in straight away; set to "on" to ask them to confirm their email first.
+      - key: EMAIL_CONFIRMATION
+        value: "off"
+      # The admin portal's sign-in (/admin); set both in the Render dashboard (password: 12+ characters).
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
       # Account emails: resend or brevo, its API key, and a sender address it has verified.
       - key: EMAIL_PROVIDER
         value: resend

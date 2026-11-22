@@ -55,6 +55,8 @@ export interface Brand {
   id: string;
   name: string;
   tier: Tier;
+  /** Set for a brand that joined through the brand portal (its items are uploaded, not copied from its site) */
+  accountId?: string;
 }
 
 export interface Product {
@@ -97,6 +99,8 @@ export interface Product {
   arrivedAt?: string;
   /** Demo flag: all seed data is placeholder data */
   demo?: boolean;
+  /** 'brand': uploaded by the brand in the brand portal (and approved by the admin), not copied from its site */
+  source?: 'brand';
 }
 
 export interface User {
@@ -131,6 +135,11 @@ export interface User {
   referrals?: number;
   /** Previews earned from those friends (capped) */
   referralCredits?: number;
+  /** Paused by the admin: cannot sign in, and any open session stops working */
+  suspended?: boolean;
+  suspendedAt?: string;
+  /** Last time the player opened the site while signed in (updated at most every few minutes) */
+  lastActiveAt?: string;
 }
 
 export interface AvatarFace {
@@ -272,8 +281,10 @@ export interface Challenge {
   prize?: string;
   /** A launch challenge: featured first until the launch week ends */
   launch?: boolean;
-  /** seed: ships with the app; search: from stylist searches; custom: a player's own brief (never listed) */
-  source: 'seed' | 'search' | 'custom';
+  /** Taken off the challenge list by the admin (looks already made for it stay) */
+  hidden?: boolean;
+  /** seed: ships with the app; search: from stylist searches; custom: a player's own brief (never listed); admin: made in the admin portal */
+  source: 'seed' | 'search' | 'custom' | 'admin';
   /** How many stylist searches asked for this */
   asks: number;
   createdAt: string;
@@ -297,6 +308,8 @@ export interface Design {
   creditEarned?: boolean;
   /** The AI image of the look on a model, if the designer previewed it */
   previewId?: string;
+  /** Taken off the Runway by the admin: nobody else can see, like or comment on it */
+  hidden?: boolean;
 }
 
 /** Something that happened to a player's look or comment: a like, a comment, or a reply. */
@@ -380,4 +393,109 @@ export interface CatalogMeta {
   syncedAt: string;
   products: number;
   inStock: number;
+}
+
+/** Switches the admin changes in the admin portal (one document, id 'settings'). Absent fields use server/.env. */
+export interface AppSettings {
+  id: 'settings';
+  /** Stop new AI previews for everyone (publishing still works) */
+  previewsOff?: boolean;
+  /** New previews across all players per 24 hours */
+  previewGlobalDailyCap?: number;
+  /** New previews one player may make per 24 hours */
+  previewDailyLimit?: number;
+  /** Free previews every account gets for life */
+  previewFree?: number;
+  /** Brands and single products players cannot pick in the Studio */
+  hiddenBrandIds: string[];
+  hiddenProductIds: string[];
+  /** The admin's own pick of featured challenges (empty = the automatic weekly rotation) */
+  featuredIds: string[];
+  /** The winning look of each week: week start (ISO) -> design id */
+  winners: Record<string, string>;
+  updatedAt: string;
+}
+
+/* --------------------------------- Brand portal --------------------------------- */
+
+/** A brand's account in the brand portal (/brand). It can sign in only once the admin approves it. */
+export interface BrandAccount {
+  id: string;
+  email: string;
+  passwordHash: string;
+  /** The person who manages the account */
+  contactName: string;
+  phone: string;
+  brandName: string;
+  website?: string;
+  instagram?: string;
+  city?: string;
+  about?: string;
+  tier: Tier;
+  /** Who the brand dresses */
+  sells: 'female' | 'male' | 'both';
+  status: 'pending' | 'approved' | 'rejected' | 'suspended';
+  /** The brand made for it when the admin approved it */
+  brandId?: string;
+  /** The admin's reason (rejected or suspended), shown to the brand */
+  note?: string;
+  createdAt: string;
+  reviewedAt?: string;
+  lastLoginAt?: string;
+  /** SHA-256 of the password-reset link's token, and when that link stops working */
+  resetTokenHash?: string;
+  resetExpiresAt?: string;
+}
+
+/**
+ * A piece a brand uploaded. Players see it (as a Product with id `bi:<id>`) only after the admin
+ * approves it. Changing anything but the price, sizes or stock sends it back for approval.
+ */
+export interface BrandItem {
+  id: string;
+  accountId: string;
+  brandId: string;
+  title: string;
+  slot: Slot;
+  gender: Gender;
+  price: number;
+  /** Palette colour names (1 or 2) */
+  colors: string[];
+  fabric?: string;
+  sizes: string[];
+  inStock: boolean;
+  /** Where players buy it: the brand's product page (or Instagram / WhatsApp link) */
+  url: string;
+  /** Photo links: the brand's own (https) or photos uploaded here (/api/brand-images/<id>) */
+  images: string[];
+  description?: string;
+  /** Optional details; when absent they are worked out from the title, like copied products */
+  occasions?: Occasion[];
+  season?: 'summer' | 'winter' | 'all';
+  embellishment?: 0 | 1 | 2 | 3;
+  stitched?: boolean;
+  includesDupatta?: boolean;
+  includesBottom?: boolean;
+  sleeve?: Sleeve;
+  length?: Length;
+  neckline?: Neckline;
+  status: 'pending' | 'approved' | 'rejected';
+  /** Why the admin rejected it */
+  note?: string;
+  /** Items uploaded together in one spreadsheet share this */
+  batchId?: string;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string;
+}
+
+/** A photo a brand uploaded (re-encoded as WebP, at most 1200 px). */
+export interface BrandImage {
+  id: string;
+  accountId: string;
+  mime: string;
+  /** base64 */
+  data: string;
+  bytes: number;
+  at: string;
 }

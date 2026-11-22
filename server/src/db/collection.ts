@@ -17,6 +17,8 @@ export interface FindOptions<T> {
   sort?: Partial<Record<keyof T & string, 1 | -1>>;
   skip?: number;
   limit?: number;
+  /** Fields to leave out of the results (big ones, such as a profile photo, when only counts or names are needed) */
+  omit?: Array<keyof T & string>;
 }
 
 export interface Collection<T extends Doc> {
@@ -70,7 +72,13 @@ export function applyOptions<T extends Doc>(docs: T[], options: FindOptions<T> =
     });
   }
   const from = options.skip ?? 0;
-  return docs.slice(from, options.limit === undefined ? undefined : from + options.limit);
+  const page = docs.slice(from, options.limit === undefined ? undefined : from + options.limit);
+  if (!options.omit?.length) return page;
+  return page.map((d) => {
+    const copy = { ...d };
+    for (const k of options.omit!) delete copy[k];
+    return copy;
+  });
 }
 
 export class MemoryCollection<T extends Doc> implements Collection<T> {

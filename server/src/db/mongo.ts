@@ -41,7 +41,8 @@ export class MongoCollection<T extends Doc> implements Collection<T> {
     return raw ? this.fromDoc(raw) : null;
   }
   async find(filter: Filter<T> = {}, options: FindOptions<T> = {}) {
-    let cursor = this.col.find(this.toFilter(filter));
+    const projection = options.omit?.length ? Object.fromEntries(options.omit.map((k) => [k, 0])) : undefined;
+    let cursor = this.col.find(this.toFilter(filter), projection ? { projection } : {});
     if (options.sort) cursor = cursor.sort(Object.fromEntries(Object.entries(options.sort).map(([k, v]) => [k === 'id' ? '_id' : k, v as 1 | -1])));
     if (options.skip) cursor = cursor.skip(options.skip);
     if (options.limit !== undefined) cursor = cursor.limit(options.limit);

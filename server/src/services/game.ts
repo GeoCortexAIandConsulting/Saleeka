@@ -15,6 +15,7 @@ import { FORMAL_OCCASIONS, maxPieces, slotsFor, type Challenge, type ChatConstra
 import { minModestyFor } from './modesty.js';
 import { currentSeason, formality, suitsOccasion } from './composer.js';
 import { uid } from './looks.js';
+import { settings } from './settings.js';
 
 /** A search becomes a public challenge only once this many stylist searches asked for it. */
 export const MIN_ASKS = 2;
@@ -106,7 +107,16 @@ export async function seedChallenges(repos: Repos): Promise<void> {
   for (const { slug, ...c } of SEED) {
     const id = `seed-${slug}`;
     const existing = await repos.challenges.findOne({ id });
-    await repos.challenges.upsert({ ...c, id, key: challengeKey(c), source: 'seed', asks: existing?.asks ?? 0, createdAt: existing?.createdAt ?? new Date().toISOString() });
+    await repos.challenges.upsert({
+      ...c,
+      id,
+      key: challengeKey(c),
+      source: 'seed',
+      asks: existing?.asks ?? 0,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      // The admin may have taken it off the list; a restart keeps it off.
+      ...(existing?.hidden ? { hidden: true } : {}),
+    });
   }
 }
 
@@ -170,9 +180,12 @@ export function publicChallenge(c: Challenge, designs: number) {
   };
 }
 
+/** Can players see and play this challenge? Seeded and admin-made ones, and searches enough shoppers asked for, unless the admin hid it. */
+export const listable = (c: Challenge) => !c.hidden && (c.source === 'seed' || c.source === 'admin' || (c.source === 'search' && c.asks >= MIN_ASKS));
+
 /** Challenges a player can design for: all seeded ones, plus searches enough shoppers asked for. */
 export async function listChallenges(repos: Repos) {
-  const all = (await repos.challenges.find()).filter((c) => c.source === 'seed' || c.asks >= MIN_ASKS);
+  const all = (await repos.challenges.find()).filter(listable);
   // Counted by the database, one challenge at a time, instead of loading every look.
   const counts = await Promise.all(all.map((c) => repos.designs.count({ challengeId: c.id, ...PUBLISHED })));
   const count = new Map(all.map((c, i) => [c.id, counts[i]]));
@@ -186,7 +199,7 @@ export async function listChallenges(repos: Repos) {
 
 export async function loadChallenge(repos: Repos, id: string): Promise<Challenge> {
   const c = await repos.challenges.findOne({ id });
-  if (!c || (c.source === 'search' && c.asks < MIN_ASKS)) throw new AppError(404, 'Challenge not found');
+  if (!c || c.hidden || (c.source === 'search' && c.asks < MIN_ASKS)) throw new AppError(404, 'Challenge not found');
   return c;
 }
 
@@ -479,9 +492,10 @@ export async function countFriend(repos: Repos, userId: string, designId: string
   });
 }
 
-export const isPublished = (d: Design) => d.status !== 'draft';
+/** Published and not hidden by the admin: what other players can see. */
+export const isPublished = (d: Design) => d.status !== 'draft' && !d.hidden;
 /** The same rule as a database filter: a look with no status was published before drafts existed. */
-const PUBLISHED = { status: { $ne: 'draft' as const } };
+export const PUBLISHED = { status: { $ne: 'draft' as const }, hidden: { $ne: true } };
 
 /** Which looks the Runway shows: women's or men's, and/or one occasion (both come from the look's challenge). */
 export interface FeedScope {
@@ -499,7 +513,7 @@ async function scopeFilter(repos: Repos, scope: FeedScope = {}) {
 }
 
 async function discardDrafts(repos: Repos, userId: string) {
-  for (const d of (await repos.designs.find({ userId })).filter((x) => !isPublished(x))) {
+  for (const d of (await repos.designs.find({ userId, status: 'draft' }))) {
     await repos.designs.delete({ id: d.id });
   }
 }
@@ -508,7 +522,7 @@ async function discardDrafts(repos: Repos, userId: string) {
 export async function publishDesign(repos: Repos, userId: string, designId: string): Promise<Design> {
   const d = await repos.designs.findOne({ id: designId, userId });
   if (!d) throw new AppError(404, 'Design not found');
-  if (isPublished(d)) return d;
+  if (d.status !== 'draft') return d;
   const published = (await repos.designs.update({ id: d.id }, { status: 'published', createdAt: new Date().toISOString() }))!;
   await countFriend(repos, userId, d.id);
   return published;
@@ -546,7 +560,7 @@ export async function nextDesignToRate(repos: Repos, userId: string) {
   return (await hydrateDesigns(repos, [open[0]]))[0];
 }
 
-async function recount(repos: Repos, designId: string) {
+export async function recount(repos: Repos, designId: string) {
   const votes = await repos.designVotes.find({ designId });
   const up = votes.filter((v) => v.up).length;
   await repos.designs.update({ id: designId }, { up, down: votes.length - up });
@@ -788,10 +802,12 @@ export async function markNotificationsRead(repos: Repos, userId: string) {
 
 /* ------------------------------ Challenge of the week ------------------------------ */
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 /** Weeks start on Monday 00:00 Pakistan time (UTC+5). 2024-01-01 was a Monday. */
 const WEEK_ZERO = Date.UTC(2024, 0, 1) - 5 * 60 * 60 * 1000;
 export const weekIndex = (now = Date.now()) => Math.floor((now - WEEK_ZERO) / WEEK_MS);
+/** When week number `i` starts (Monday 00:00 Pakistan time), as an ISO date. */
+export const weekStart = (i: number) => new Date(WEEK_ZERO + i * WEEK_MS).toISOString();
 export const weekEnds = (now = Date.now()) => new Date(WEEK_ZERO + (weekIndex(now) + 1) * WEEK_MS).toISOString();
 
 /**
@@ -804,6 +820,9 @@ function rotation(gender: Gender, now: number) {
 
 /** This week's featured challenge for women and for men. Everyone sees the same ones all week. */
 export function featuredIds(now = Date.now()): string[] {
+  // The admin's own pick comes first, then the launch challenges while the launch is on.
+  const picked = settings().featuredIds;
+  if (picked.length) return picked;
   if (launchOn(now)) return LAUNCH.map((c) => `seed-${c.slug}`);
   return (['female', 'male'] as Gender[]).map((g) => {
     const ids = rotation(g, now);

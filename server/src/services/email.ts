@@ -84,6 +84,23 @@ export function verifyEmail(to: string, name: string, link: string): Email {
   };
 }
 
+/** Brand portal: the admin approved or turned down an application, or a brand asked for a new password. */
+export function brandApprovedEmail(to: string, name: string, brand: string, link: string): Email {
+  return {
+    to,
+    subject: `${brand} is approved on Saleeqa`,
+    ...layout(name, `Good news: ${brand} is approved. Sign in to your brand dashboard to add your pieces and see how players style them.`, 'Open my brand dashboard', link, 'Every piece you add is checked by our team before players see it.'),
+  };
+}
+
+export function brandRejectedEmail(to: string, name: string, brand: string, reason: string, link: string): Email {
+  return {
+    to,
+    subject: `About your Saleeqa application for ${brand}`,
+    ...layout(name, `Thank you for applying. We cannot approve ${brand} just now.${reason ? ` Reason: ${reason}` : ''}`, 'Visit Saleeqa', link, 'Reply to this email if you have questions.'),
+  };
+}
+
 export function resetEmail(to: string, name: string, link: string): Email {
   return {
     to,

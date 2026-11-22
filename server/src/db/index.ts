@@ -10,6 +10,10 @@ import type {
   PreviewImage,
   PreviewUsage,
   AppNotification,
+  AppSettings,
+  BrandAccount,
+  BrandImage,
+  BrandItem,
   CatalogMeta,
   EventRecord,
   Look,
@@ -39,6 +43,12 @@ export interface Repos {
   notifications: Collection<AppNotification>;
   /** Catalog sync status (one document, id 'catalog') */
   meta: Collection<CatalogMeta>;
+  /** Admin portal switches (one document, id 'settings') */
+  settings: Collection<AppSettings>;
+  /** The brand portal: accounts, their uploaded items, and uploaded photos */
+  brandAccounts: Collection<BrandAccount>;
+  brandItems: Collection<BrandItem>;
+  brandImages: Collection<BrandImage>;
   close(): Promise<void>;
 }
 
@@ -60,6 +70,10 @@ export function createMemoryRepos(): Repos {
     previewUsage: new MemoryCollection<PreviewUsage>(),
     notifications: new MemoryCollection<AppNotification>(),
     meta: new MemoryCollection<CatalogMeta>(),
+    settings: new MemoryCollection<AppSettings>(),
+    brandAccounts: new MemoryCollection<BrandAccount>(),
+    brandItems: new MemoryCollection<BrandItem>(),
+    brandImages: new MemoryCollection<BrandImage>(),
     close: async () => {},
   };
 }
@@ -83,6 +97,10 @@ export async function createMongoRepos(uri: string, dbName: string): Promise<Rep
     previewUsage: new MongoCollection<PreviewUsage>(db, 'previewUsage'),
     notifications: new MongoCollection<AppNotification>(db, 'notifications'),
     meta: new MongoCollection<CatalogMeta>(db, 'meta'),
+    settings: new MongoCollection<AppSettings>(db, 'settings'),
+    brandAccounts: new MongoCollection<BrandAccount>(db, 'brandAccounts'),
+    brandItems: new MongoCollection<BrandItem>(db, 'brandItems'),
+    brandImages: new MongoCollection<BrandImage>(db, 'brandImages'),
     close: () => client.close(),
   };
   // Indexes that matter from day one.
@@ -111,5 +129,17 @@ export async function createMongoRepos(uri: string, dbName: string): Promise<Rep
   await db.collection('designs').createIndex({ challengeId: 1, status: 1, createdAt: -1 });
   await db.collection('notifications').createIndex({ userId: 1, at: -1 });
   await db.collection('notifications').createIndex({ actorId: 1 });
+  // The admin portal: brand counts, active players, newest sign-ups.
+  await db.collection('products').createIndex({ brandId: 1, inStock: 1 });
+  await db.collection('users').createIndex({ createdAt: -1 });
+  await db.collection('users').createIndex({ lastActiveAt: -1 });
+  await db.collection('designVotes').createIndex({ at: -1 });
+  await db.collection('comments').createIndex({ at: -1 });
+  // The brand portal.
+  await db.collection('brandAccounts').createIndex({ email: 1 }, { unique: true });
+  await db.collection('brandAccounts').createIndex({ status: 1, createdAt: -1 });
+  await db.collection('brandItems').createIndex({ accountId: 1, createdAt: -1 });
+  await db.collection('brandItems').createIndex({ status: 1, createdAt: 1 });
+  await db.collection('brandImages').createIndex({ accountId: 1 });
   return repos;
 }

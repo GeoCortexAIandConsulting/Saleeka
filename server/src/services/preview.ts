@@ -17,6 +17,7 @@ import { AppError } from '../errors.js';
 import type { Design, Gender, Occasion, PreviewImage, Product, Slot } from '../types.js';
 import { genderOf } from './game.js';
 import { uid } from './looks.js';
+import { settings } from './settings.js';
 
 export const previewEnabled = () => Boolean(config.preview.project || config.preview.apiKey);
 
@@ -221,9 +222,15 @@ export async function compressImage(img: { mime: string; data: string }, quality
 }
 
 /** A product photo, small enough to send (Shopify serves resized images on request). */
-async function productPhoto(p: Product): Promise<{ mimeType: string; data: string }> {
+async function productPhoto(repos: Repos, p: Product): Promise<{ mimeType: string; data: string }> {
   const src = p.images?.[0];
   if (!src) throw new AppError(400, `${p.title} has no photo to preview`);
+  // A photo a brand uploaded in the brand portal is in our own database.
+  if (src.startsWith('/api/brand-images/')) {
+    const img = await repos.brandImages.findOne({ id: src.split('/').pop()! });
+    if (!img) throw new AppError(502, `Could not load the photo of ${p.title}.`);
+    return { mimeType: img.mime, data: img.data };
+  }
   const url = /cdn\.shopify\.com/.test(src) ? `${src}${src.includes('?') ? '&' : '?'}width=768` : src;
   const res = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
   if (!res?.ok) throw new AppError(502, `Could not load the photo of ${p.title}. Please try again.`);
@@ -299,7 +306,7 @@ async function makePreview(
   const main = pieces.find((x) => x.slot === 'main')?.product;
   if (!main) throw new AppError(400, 'Choose an outfit first');
 
-  const [base, photos] = await Promise.all([baseModel(repos, gender, variant, size), Promise.all(pieces.map((x) => productPhoto(x.product)))]);
+  const [base, photos] = await Promise.all([baseModel(repos, gender, variant, size), Promise.all(pieces.map((x) => productPhoto(repos, x.product)))]);
   const parts: unknown[] = [{ text: 'Our model:' }, { inlineData: { mimeType: base.mime, data: base.data } }];
   pieces.forEach((x, i) => {
     parts.push({ text: `Piece ${i + 1} — ${PIECE[x.slot]}: ${x.product.title}` });
@@ -341,6 +348,18 @@ async function recordUsage(repos: Repos, userId: string, at: string) {
   await repos.previewUsage.upsert({ id, used: Math.max(total, (kept?.used ?? 0) + 1), updatedAt: at });
 }
 
+/** The preview limits in force: the admin portal's settings where set, else server/.env. */
+export function previewLimits() {
+  const s = settings();
+  return {
+    ...config.preview,
+    off: config.preview.off || Boolean(s.previewsOff),
+    free: s.previewFree ?? config.preview.free,
+    dailyLimit: s.previewDailyLimit ?? config.preview.dailyLimit,
+    globalDailyCap: s.previewGlobalDailyCap ?? config.preview.globalDailyCap,
+  };
+}
+
 /**
  * What a player may still preview. A new image costs money, so it is limited several ways:
  * - for life: the free previews every account gets, plus those earned by inviting friends (game.ts). Previews
@@ -351,7 +370,7 @@ async function recordUsage(repos: Repos, userId: string, at: string) {
  * A look already previewed is shown again for free and never reaches this.
  */
 export async function previewStatus(repos: Repos, userId: string) {
-  const { free, dailyLimit, globalDailyCap, requireVerifiedEmail, friendsForCredit, friendCreditCap, off } = config.preview;
+  const { free, dailyLimit, globalDailyCap, requireVerifiedEmail, friendsForCredit, friendCreditCap, off } = previewLimits();
   const user = await repos.users.findOne({ id: userId });
   const since = new Date(Date.now() - DAY).toISOString();
   const [mine, today, everyone, kept] = await Promise.all([
@@ -363,7 +382,7 @@ export async function previewStatus(repos: Repos, userId: string) {
   const used = Math.max(mine, kept?.used ?? 0);
   const earned = user?.previewCredits ?? 0;
   const left = Math.max(0, free + earned - used);
-  const verified = Boolean(user?.emailVerifiedAt) || !requireVerifiedEmail;
+  const verified = Boolean(user?.emailVerifiedAt) || !requireVerifiedEmail || !config.emailConfirmation;
   let blocked: PreviewBlock | null = null;
   let message: string | null = null;
   if (off || dailyLimit === 0 || globalDailyCap === 0) {

@@ -29,7 +29,8 @@ const stored = (p: Product): LiveStock => ({ id: p.id, checked: false, inStock: 
 /** Asks the shop about one piece. Exported for tests. */
 export async function askShop(p: Product, get = quickGet): Promise<LiveStock> {
   const src = BRAND_SOURCES.find((b) => b.id === p.brandId);
-  if (!src || src.platform !== 'shopify' || p.demo) return stored(p);
+  // Pieces a brand uploaded in the brand portal keep the stock the brand sets.
+  if (!src || src.platform !== 'shopify' || p.demo || p.source === 'brand') return stored(p);
   let path: string;
   try {
     path = new URL(p.url).pathname.replace(/\/$/, '');

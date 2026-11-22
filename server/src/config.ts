@@ -16,6 +16,19 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? (isProd ? '' : 'dev-secret-do-not-use-in-production'),
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
   adminKey: process.env.ADMIN_KEY ?? '',
+  /**
+   * Email confirmation for new players (EMAIL_CONFIRMATION=on). Off for now: sign-up signs the player in
+   * at once, and nothing (sign-in, AI previews, trusted likes) waits for a confirmed email.
+   */
+  emailConfirmation: process.env.EMAIL_CONFIRMATION === 'on',
+  /**
+   * The admin portal's own sign-in (/admin), separate from player accounts. The portal is off until both
+   * are set; in production the password must be at least 12 characters.
+   */
+  admin: {
+    username: (process.env.ADMIN_USERNAME ?? '').trim(),
+    password: process.env.ADMIN_PASSWORD ?? '',
+  },
   mongoUri: process.env.MONGODB_URI ?? '',
   mongoDb: process.env.MONGODB_DB ?? 'saleeqa',
   llm: {
@@ -47,6 +60,8 @@ export const config = {
     off: process.env.PREVIEWS_OFF === 'true',
     /** A verified email is needed before the first preview (fake accounts cannot farm free previews) */
     requireVerifiedEmail: process.env.PREVIEW_REQUIRE_VERIFIED_EMAIL !== 'false',
+    /** What one new preview image costs, in US dollars (for the admin portal's spending figures) */
+    costUsd: Number(process.env.PREVIEW_COST_USD) || 0.13,
   },
   /** The launch challenges are featured first until this moment (default: a week after launch, 27 Nov 2026) */
   launchEnds: process.env.LAUNCH_ENDS || '2026-12-04T23:59:59+05:00',
