@@ -19,11 +19,15 @@ import { liveStock } from './services/liveStock.js';
 import { ALL_SLOTS, OCCASIONS, SLOTS, slotsFor, type AvatarFace, type Occasion, type Product } from './types.js';
 import { seedIfEmpty } from './data/seedDb.js';
 import { BUDGETS, COLOUR_FAMILIES, COVERAGES, makeBrief } from './services/brief.js';
-import { BODY_SIZES, deletePreviews, previewDesign, previewEnabled, previewStatus } from './services/preview.js';
+import { BODY_SIZES, deletePreviews, linkPreviewJpeg, previewDesign, previewEnabled, previewStatus } from './services/preview.js';
 import { confirmEmail, devLink, forgotPassword, resetPassword, sendVerification } from './services/accounts.js';
 import { usernameCheck } from './services/usernames.js';
-import { challengeCovers, liveCounts, showcase, FEED_SORTS, listNotifications, markNotificationsRead, playerProfile, unreadCount, weekly } from './services/game.js';
-import { addComment, deleteComment, deleteGameData, feed, feedLook, gamePieces, PIECE_SORTS, gameItems, isPublished, listComments, publishDesign, hydrateDesigns, listChallenges, loadChallenge, nextDesignToRate, publicChallenge, seedChallenges, submitDesign, voteDesign } from './services/game.js';
+import { disabledBrands as disabledBrandsOf, forgetDisabledBrands, withoutDisabled } from './services/brands.js';
+import { adminDeleteComment, closeReport, listReports, reportThing, setLookHidden } from './services/moderation.js';
+import { REPORT_REASONS } from './types.js';
+import { withUtm } from './services/utm.js';
+import { challengeCovers, launchBoard, liveCounts, showcase, sitemapLooks, FEED_SORTS, listNotifications, markNotificationsRead, playerProfile, unreadCount, weekly } from './services/game.js';
+import { addComment, countFriend, deleteComment, deleteGameData, feed, feedLook, gamePieces, PIECE_SORTS, gameItems, isPublished, listComments, publishDesign, hydrateDesigns, listChallenges, loadChallenge, nextDesignToRate, publicChallenge, seedChallenges, submitDesign, voteDesign } from './services/game.js';
 
 /** How many Runway looks a visitor without an account can see. */
 export const GUEST_PEEK = 4;
@@ -37,13 +41,17 @@ export interface AppOptions {
   catalogCacheMs?: number;
 }
 
+/** How long the health check waits for the database. */
+export const HEALTH_DB_MS = 2000;
+
 export async function createApp({ repos, llm, rateLimit: limit = true, catalogCacheMs }: AppOptions) {
   await seedIfEmpty(repos);
   await seedChallenges(repos);
   // In-stock pieces, held in memory and swapped in after each catalog sync (see catalogStore.ts).
   const catalogTtl = catalogCacheMs ?? (limit ? 60_000 : 0);
   const store = createCatalogStore(repos, { checkMs: catalogTtl });
-  const catalog = () => store.get();
+  // Switched-off brands drop out of everything built from the catalogue (Studio, pieces, demo, briefs).
+  const catalog = async () => withoutDisabled(repos, await store.get());
   if (catalogTtl) catalog().catch((e) => console.warn('Could not load the catalogue at start-up:', e)); // warm it before the first visitor
   const app = express();
   if (config.isProd) app.set('trust proxy', 1);
@@ -70,6 +78,20 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   const voteLimiter = limit
     ? rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Slow down a little: try again in a minute.' } })
     : (_q: Request, _s: Response, n: NextFunction) => n();
+  // Reports, per player: plenty for real problems, too few to flood the admins.
+  const reportLimiter = limit
+    ? rateLimit({
+        windowMs: 60 * 60 * 1000,
+        limit: 10,
+        keyGenerator: (_req, res) => String(res.locals.userId),
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { error: 'Thank you for all your reports! Please try again in a little while.' },
+      })
+    : (_q: Request, _s: Response, n: NextFunction) => n();
+  /** Admin routes: the x-admin-key header must match ADMIN_KEY (and ADMIN_KEY must be set). */
+  const requireAdmin = (req: Request, _res: Response, next: NextFunction) =>
+    next(config.adminKey && req.headers['x-admin-key'] === config.adminKey ? undefined : new AppError(403, 'Forbidden'));
   // Live stock checks ask the brands' shops: a few per look page, never a flood.
   const liveLimiter = limit
     ? rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many stock checks: try again in a minute.' } })
@@ -96,8 +118,20 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     avatarVersion: u.avatar ? u.avatar.updatedAt : null,
   });
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, llm: llm.name });
+  // Render's health check: the API is up and the database answers within 2 seconds (else 503, so
+  // Render knows something is wrong). Never cached.
+  app.get('/api/health', async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const started = Date.now();
+    let timer: NodeJS.Timeout | undefined;
+    const db = await Promise.race([
+      repos.ping().then(() => 'ok' as const),
+      new Promise<'timeout'>((resolve) => (timer = setTimeout(() => resolve('timeout'), HEALTH_DB_MS))),
+    ])
+      .catch(() => 'error' as const)
+      .finally(() => clearTimeout(timer));
+    const ok = db === 'ok';
+    res.status(ok ? 200 : 503).json({ ok, db, dbMs: Date.now() - started, llm: llm.name });
   });
 
   /* ------------------------------- auth ------------------------------- */
@@ -142,10 +176,11 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
       if (taken(e)) throw new AppError(409, 'That username or email was just taken. Try another.');
       throw e;
     }
-    // Confirming the email is the last step of creating the account: the player is signed in by the
-    // link in the email (POST /api/auth/verify), once, and never asked again.
+    // The player is signed in straight away and can play and publish. The link in the email
+    // (POST /api/auth/verify) confirms it, which unlocks AI previews and counts them for a friend.
     const url = await sendVerification(repos, user, { force: true }).catch((e) => void console.warn('Verification email failed:', (e as Error).message));
-    res.status(201).json({ pending: true, email: user.email, ...(devLink(url ?? undefined) ? { devLink: devLink(url ?? undefined) } : {}) });
+    setAuthCookie(res, user.id);
+    res.status(201).json({ user: publicUser(user), email: user.email, ...(devLink(url ?? undefined) ? { devLink: devLink(url ?? undefined) } : {}) });
   });
 
   /* ---------------------- email: verify, forgot, reset ---------------------- */
@@ -153,12 +188,25 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   app.post('/api/auth/verify', authLimiter, async (req, res) => {
     const { token } = z.object({ token: tokenSchema }).parse(req.body);
     const user = await confirmEmail(repos, token);
-    // The link finishes creating the account, so it also signs the player in.
+    // The link also signs the player in (it may be opened on another device).
     setAuthCookie(res, user.id);
+    // A look published before confirming now counts for the friend who invited them.
+    const published = (await repos.designs.find({ userId: user.id })).find(isPublished);
+    if (published) await countFriend(repos, user.id, published.id);
     res.json({ user: publicUser(user) });
   });
 
-  // A new confirmation link, asked for by email (the player cannot sign in until confirmed).
+  // A new confirmation link for the signed-in player. Unlike the by-email route below, it says why
+  // nothing was sent ("we just sent one"): it can only ever reveal the player's own account.
+  app.post('/api/me/verify/resend', requireAuth, authLimiter, async (_req, res) => {
+    const user = await repos.users.findOne({ id: uidOf(res) });
+    if (!user) throw new AppError(401, 'Please sign in');
+    if (user.emailVerifiedAt) return void res.json({ ok: true, verified: true });
+    const url = await sendVerification(repos, user);
+    res.json({ ok: true, ...(devLink(url) ? { devLink: devLink(url) } : {}) });
+  });
+
+  // A new confirmation link, asked for by email (e.g. from the sign-in page, signed out).
   // Same answer whether or not the email has an account.
   app.post('/api/auth/verify/resend', authLimiter, async (req, res) => {
     const { email } = z.object({ email: z.string().email().max(120).transform((x) => x.toLowerCase().trim()) }).parse(req.body);
@@ -195,7 +243,6 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     const user = await repos.users.findOne({ email: body.email });
     const ok = user ? await bcrypt.compare(body.password, user.passwordHash) : false;
     if (!user || !ok) throw new AppError(401, 'Email or password is incorrect');
-    if (!user.emailVerifiedAt) throw new AppError(403, 'Please confirm your email first: open the link we sent you. Need a new one? Press "Send the link again".');
     setAuthCookie(res, user.id);
     res.json({ user: publicUser(user) });
   });
@@ -208,11 +255,6 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   app.get('/api/me', requireAuth, async (_req, res) => {
     const user = await repos.users.findOne({ id: uidOf(res) });
     if (!user) throw new AppError(401, 'Please sign in');
-    // An account made before email confirmation existed signs in again and confirms once.
-    if (!user.emailVerifiedAt) {
-      res.clearCookie(COOKIE, { path: '/' });
-      throw new AppError(401, 'Please sign in and confirm your email');
-    }
     const profile = await repos.profiles.findOne({ id: user.id });
     res.json({
       user: publicUser(user),
@@ -313,6 +355,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     await repos.rounds.delete({ userId: id });
     await repos.sessions.delete({ userId: id });
     await repos.events.delete({ userId: id });
+    await repos.reports.delete({ reporterId: id });
     await repos.profiles.delete({ id });
     await repos.users.delete({ id });
     res.clearCookie(COOKIE, { path: '/' });
@@ -437,8 +480,8 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   // The landing page's Runway: real trending looks, open to everyone (they are public pages).
   let showcaseCache: { at: number; body: unknown } | null = null;
   app.get('/api/showcase', async (_req, res) => {
-    if (!showcaseCache || Date.now() - showcaseCache.at > 5 * 60 * 1000 || !catalogTtl) showcaseCache = { at: Date.now(), body: { looks: await showcase(repos) } };
-    res.set('Cache-Control', 'public, max-age=300');
+    if (!showcaseCache || Date.now() - showcaseCache.at > 60 * 1000 || !catalogTtl) showcaseCache = { at: Date.now(), body: { looks: await showcase(repos) } };
+    res.set('Cache-Control', 'public, max-age=60');
     res.json(showcaseCache.body);
   });
 
@@ -456,7 +499,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   app.get('/api/demo/look', async (req, res) => {
     const gender = req.query.gender === 'male' ? 'male' : 'female';
     let cached = demoCache.get(gender);
-    if (!cached || Date.now() - cached.at > 10 * 60 * 1000) {
+    if (!cached || Date.now() - cached.at > 60 * 1000 || !catalogTtl) {
       const ids = gender === 'male' ? ['seed-men-eid-white', 'seed-men-mehndi'] : ['seed-mehndi-mustard', 'seed-mehndi-green'];
       let challenge = null;
       for (const id of ids) challenge ??= await repos.challenges.findOne({ id });
@@ -478,7 +521,7 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
       cached = { at: Date.now(), body: { challenge: publicChallenge(challenge, 0), items } };
       demoCache.set(gender, cached);
     }
-    res.set('Cache-Control', 'public, max-age=600');
+    res.set('Cache-Control', 'public, max-age=60');
     res.json(cached.body);
   });
 
@@ -549,7 +592,9 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
   // Is the preview on, and (signed in) how many the player has left and what, if anything, stops them.
   app.get('/api/game/preview', optionalAuth, async (_req, res) => {
     const userId = res.locals.userId as string | null;
-    res.json({ enabled: previewEnabled(), ...(userId && previewEnabled() ? { status: await previewStatus(repos, userId) } : {}) });
+    // `free`: what a new account gets, for the guest's "See it on a model (1 free)" button.
+    if (!previewEnabled()) return void res.json({ enabled: false });
+    res.json({ enabled: true, free: config.preview.free, ...(userId ? { status: await previewStatus(repos, userId) } : {}) });
   });
 
   app.post('/api/game/designs/:id/preview', requireAuth, previewLimiter, async (req, res) => {
@@ -569,6 +614,8 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
       if (!published) throw new AppError(404, 'Preview not found');
     }
     res.set('Cache-Control', 'private, max-age=31536000, immutable');
+    // ?format=jpg: the copy shared links show in WhatsApp and other chats.
+    if (req.query.format === 'jpg') return void res.type('image/jpeg').send(await linkPreviewJpeg(Buffer.from(p.data, 'base64')));
     res.type(p.mime).send(Buffer.from(p.data, 'base64'));
   });
 
@@ -628,6 +675,21 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
     res.json({ ...week, challenges: week.challenges.map((c) => ({ ...c, cover: cover.get(c.id) ?? null })) });
   });
 
+  // The launch contest (banner and top-10 board), for everyone, signed in or not. {active:false} after the deadline.
+  app.get('/api/game/launch', optionalAuth, async (_req, res) => {
+    const userId = (res.locals.userId as string | null) ?? '';
+    const [board, cover] = await Promise.all([launchBoard(repos, userId), covers()]);
+    res.set('Cache-Control', 'private, max-age=30');
+    if (!board) return void res.json({ active: false });
+    res.json({ active: true, ...board, challenges: board.challenges.map((c) => ({ ...c, cover: cover.get(c.id) ?? null })) });
+  });
+
+  // For the sitemap: the newest 5,000 published looks, only their ids and dates (nothing personal).
+  app.get('/api/sitemap/looks', async (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({ looks: await sitemapLooks(repos) });
+  });
+
   // A player's page: their looks and the likes they earned (first name only).
   app.get('/api/players/:id', requireAuth, async (req, res) => {
     res.json(await playerProfile(repos, uidOf(res), String(req.params.id)));
@@ -672,23 +734,19 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
 
   /* ----------------------- click-out tracking + partners ----------------------- */
   app.get('/api/brands', async (_req, res) => {
-    res.json({ brands: await repos.brands.find() });
+    res.json({ brands: (await repos.brands.find()).filter((b) => b.enabled !== false) });
   });
 
   // Every "buy" button goes through here so brands get attributed clicks.
   app.get('/api/go/:productId', optionalAuth, async (req, res) => {
     const product = await repos.products.findOne({ id: String(req.params.productId) });
-    if (!product) throw new AppError(404, 'Product not found');
-    await repos.events.insert({
-      id: uid(),
-      userId: res.locals.userId ?? undefined,
-      type: 'click',
-      productId: product.id,
-      brandId: product.brandId,
-      lookId: typeof req.query.look === 'string' ? req.query.look : undefined,
-      at: new Date().toISOString(),
-    });
-    res.redirect(302, product.url);
+    if (!product || (await disabledBrandsOf(repos)).has(product.brandId)) throw new AppError(404, 'Product not found');
+    const lookId = typeof req.query.look === 'string' ? req.query.look.slice(0, 80) : undefined;
+    await repos.events.insert({ id: uid(), userId: res.locals.userId ?? undefined, type: 'click', productId: product.id, brandId: product.brandId, lookId, at: new Date().toISOString() });
+    // The brand sees where the visit came from: utm_campaign is the look's challenge key, else "look".
+    const design = lookId ? await repos.designs.findOne({ id: lookId }) : null;
+    const challenge = design ? await repos.challenges.findOne({ id: design.challengeId }) : null;
+    res.redirect(302, withUtm(product.url, challenge?.key ?? 'look'));
   });
 
   app.get('/api/partners/:brandId/report', async (req, res) => {
@@ -704,6 +762,64 @@ export async function createApp({ repos, llm, rateLimit: limit = true, catalogCa
       saves: count('save'),
       clickRate: impressions ? Math.round((clicks / impressions) * 1000) / 10 : 0,
     });
+  });
+
+  /* ------------------------------ reports ------------------------------ */
+  // A signed-in player reports a look or a comment (one report per player and thing).
+  app.post('/api/reports', requireAuth, reportLimiter, async (req, res) => {
+    const body = z
+      .object({ target: z.enum(['look', 'comment']), id: z.string().min(1).max(80), reason: z.enum(REPORT_REASONS), note: z.string().max(300).optional() })
+      .parse(req.body);
+    await reportThing(repos, uidOf(res), body);
+    res.status(201).json({ ok: true });
+  });
+
+  /* ------------------------------- admin ------------------------------- */
+  // Every brand with its switch and how many pieces it has in stock.
+  app.get('/api/admin/brands', requireAdmin, async (_req, res) => {
+    const brands = await repos.brands.find();
+    const counts = await Promise.all(brands.map((b) => repos.products.count({ brandId: b.id, inStock: true })));
+    res.json({
+      brands: brands
+        .map((b, i) => ({ id: b.id, name: b.name, tier: b.tier, enabled: b.enabled !== false, inStock: counts[i] }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    });
+  });
+
+  // Switch a brand off (its pieces disappear everywhere within a minute) or back on.
+  app.patch('/api/admin/brands/:id', requireAdmin, async (req, res) => {
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    const brand = await repos.brands.update({ id: String(req.params.id) }, { enabled });
+    if (!brand) throw new AppError(404, 'Brand not found');
+    // This server shows the change at once; the others within BRANDS_TTL_MS (a minute).
+    forgetDisabledBrands(repos);
+    coverCache = null;
+    showcaseCache = null;
+    demoCache.clear();
+    res.json({ brand: { id: brand.id, name: brand.name, enabled: brand.enabled !== false } });
+  });
+
+  app.get('/api/admin/reports', requireAdmin, async (req, res) => {
+    const status = req.query.status === 'closed' ? 'closed' : 'open';
+    res.json({ reports: await listReports(repos, status) });
+  });
+
+  app.post('/api/admin/reports/:id/close', requireAdmin, async (req, res) => {
+    await closeReport(repos, String(req.params.id));
+    res.json({ ok: true });
+  });
+
+  // Take a look down (gone from the Runway, profiles and its page) or put it back.
+  app.post('/api/admin/looks/:id/hide', requireAdmin, async (req, res) => {
+    const { hidden } = z.object({ hidden: z.boolean().default(true) }).parse(req.body ?? {});
+    await setLookHidden(repos, String(req.params.id), hidden);
+    showcaseCache = null;
+    res.json({ ok: true, hidden });
+  });
+
+  app.delete('/api/admin/comments/:id', requireAdmin, async (req, res) => {
+    await adminDeleteComment(repos, String(req.params.id));
+    res.json({ ok: true });
   });
 
   /* ---------------------------- errors ---------------------------- */

@@ -17,6 +17,7 @@ import { AppError } from '../errors.js';
 import type { Design, Gender, Occasion, PreviewImage, Product, Slot } from '../types.js';
 import { genderOf } from './game.js';
 import { uid } from './looks.js';
+import { withoutDisabled } from './brands.js';
 
 export const previewEnabled = () => Boolean(config.preview.project || config.preview.apiKey);
 
@@ -293,7 +294,7 @@ async function makePreview(
   const status = await previewStatus(repos, userId);
   if (status.blocked) throw new AppError(status.blocked === 'verify' ? 403 : 429, status.message!);
 
-  const products = await repos.products.find({ id: { $in: d.items.map((i) => i.productId) } });
+  const products = await withoutDisabled(repos, await repos.products.find({ id: { $in: d.items.map((i) => i.productId) } }));
   const byId = new Map(products.map((p) => [p.id, p]));
   const pieces = d.items.map((i) => ({ slot: i.slot, product: byId.get(i.productId) })).filter((x): x is { slot: Slot; product: Product } => Boolean(x.product));
   const main = pieces.find((x) => x.slot === 'main')?.product;
@@ -326,8 +327,19 @@ async function makePreview(
 
 export type PreviewBlock = 'off' | 'verify' | 'used-up' | 'player-today' | 'everyone-today';
 
-/** What players see when previews are switched off or a daily limit is set to 0. */
-export const RESTING = 'Previews are resting for today. Publish your look now.';
+/**
+ * A small JPEG copy of a look's image for link previews: WhatsApp shows JPEGs under ~300 KB
+ * reliably, but not always WebP. 600 px wide is plenty for a chat bubble.
+ */
+export async function linkPreviewJpeg(data: Buffer): Promise<Buffer> {
+  return sharp(data).resize({ width: 600, withoutEnlargement: true }).jpeg({ quality: 78, mozjpeg: true }).toBuffer();
+}
+
+/** How friends earn a preview, in words: "when a friend joins…" (1) or "for every 3 friends who join…". */
+const friendsWay = (n: number) => (n === 1 ? 'when a friend joins from your link and publishes a look' : `for every ${n} friends who join from your link and publish a look`);
+
+/** What players see when previews are switched off or a daily limit is reached. */
+export const RESTING = 'Previews are resting for today. Publish your look now and preview it tomorrow.';
 
 /** The key a player's preview count is kept under: a hash of their email, never the email itself. */
 export const emailKey = (email: string) => createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
@@ -351,7 +363,7 @@ async function recordUsage(repos: Repos, userId: string, at: string) {
  * A look already previewed is shown again for free and never reaches this.
  */
 export async function previewStatus(repos: Repos, userId: string) {
-  const { free, dailyLimit, globalDailyCap, requireVerifiedEmail, friendsForCredit, friendCreditCap, off } = config.preview;
+  const { free, dailyLimit, globalDailyCap, requireVerifiedEmail, friendsForCredit, likesForCredit, friendCreditCap, off } = config.preview;
   const user = await repos.users.findOne({ id: userId });
   const since = new Date(Date.now() - DAY).toISOString();
   const [mine, today, everyone, kept] = await Promise.all([
@@ -364,6 +376,8 @@ export async function previewStatus(repos: Repos, userId: string) {
   const earned = user?.previewCredits ?? 0;
   const left = Math.max(0, free + earned - used);
   const verified = Boolean(user?.emailVerifiedAt) || !requireVerifiedEmail;
+  // More can still be earned (from likes or friends) until the shared cap is reached.
+  const canEarn = ((user?.referralCredits ?? 0) + (user?.likeCredits ?? 0)) < friendCreditCap;
   let blocked: PreviewBlock | null = null;
   let message: string | null = null;
   if (off || dailyLimit === 0 || globalDailyCap === 0) {
@@ -374,21 +388,20 @@ export async function previewStatus(repos: Repos, userId: string) {
     message = 'Please confirm your email first: we sent you a link. It unlocks your free previews.';
   } else if (left <= 0) {
     blocked = 'used-up';
-    message =
-      (user?.referralCredits ?? 0) >= friendCreditCap
-        ? 'You have used all your free previews. You can still publish your look.'
-        : `You have used your free preview. Get another for every ${friendsForCredit} friends who join from your share link and publish a look. You can still publish yours.`;
+    message = !canEarn
+      ? 'You’ve used your free previews. You can still publish your look.'
+      : `You’ve used your free previews. Get another when ${likesForCredit} people like one of your looks, or ${friendsWay(friendsForCredit)}.`;
   } else if (today >= dailyLimit) {
     blocked = 'player-today';
-    message = `You have made ${dailyLimit} previews today. Come back tomorrow for more. You can still publish your look.`;
+    message = RESTING;
   } else if (everyone >= globalDailyCap) {
     blocked = 'everyone-today';
-    message = 'So many people are previewing today that we have reached today’s limit. Come back tomorrow! You can still publish your look.';
+    message = RESTING;
   }
   const friends = user?.referrals ?? 0;
   // Friends still needed for the next earned preview (0 once the cap is reached).
-  const friendsToGo = (user?.referralCredits ?? 0) >= friendCreditCap ? 0 : friendsForCredit - (friends % friendsForCredit);
-  return { verified, left, free, earned, used, friends, friendsForCredit, friendsToGo, blocked, message };
+  const friendsToGo = canEarn ? friendsForCredit - (friends % friendsForCredit) : 0;
+  return { verified, left, free, earned, used, friends, friendsForCredit, friendsToGo, likesForCredit, canEarn, blocked, message };
 }
 
 /** Part of "delete my data". */

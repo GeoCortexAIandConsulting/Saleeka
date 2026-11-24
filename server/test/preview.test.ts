@@ -125,6 +125,12 @@ describe('AI look preview', () => {
     expect(feed.body.looks.find((l: any) => l.id === again.body.design.id).previewUrl).toBe(res.body.design.previewUrl);
     // Published, its image opens for anyone with the link (shared on WhatsApp).
     expect((await request(app).get(res.body.design.previewUrl)).status).toBe(200);
+    // Link previews get a small JPEG copy (WhatsApp does not always show WebP).
+    const jpg = await request(app).get(`${res.body.design.previewUrl}?format=jpg`).buffer(true);
+    expect(jpg.status).toBe(200);
+    expect(jpg.headers['content-type']).toMatch(/image\/jpeg/);
+    expect([jpg.body[0], jpg.body[1]]).toEqual([0xff, 0xd8]);
+    expect((await sharp(jpg.body).metadata()).width).toBeLessThanOrEqual(600);
   });
 
   it('shows the look on a fair, beautiful model at the body size picked, styled for the occasion', async () => {

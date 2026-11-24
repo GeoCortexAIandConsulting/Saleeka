@@ -209,11 +209,29 @@ describe('tagging real catalog items', () => {
   it('turns product codes into readable titles', () => {
     const p = ok(raw({ title: 'SS23BSP226F', productType: 'Ready to Wear', text: 'Colour: Maroon\nFabric: Khaddar' }));
     expect(p.title).toBe('maroon khaddar kurta');
-    expect(displayTitle('SHIRT (E2376/108/001)', 'white', 'cotton', 'kurta')).toBe('Shirt');
+    // A short title that names no colour gets the piece's colour.
+    expect(displayTitle('SHIRT (E2376/108/001)', 'white', 'cotton', 'kurta')).toBe('White Shirt');
     expect(displayTitle('Dark Beige Women Shawl-1721512118', 'beige', 'cotton', 'shawl')).toBe('Dark Beige Women Shawl');
     expect(displayTitle('2 PIECE - PRINTED SUIT - ST2STE-PRET26WV2-64', 'maroon', 'linen', 'suit')).toBe('2 Piece Printed Suit');
     expect(displayTitle('Grey Lawn Kurti | JLK-SS26-104', 'grey', 'lawn', 'kurta')).toBe('Grey Lawn Kurti');
     expect(displayTitle('3 Piece Printed Lawn Suit', 'pink', 'lawn', 'suit')).toBe('3 Piece Printed Lawn Suit');
+  });
+
+  it('drops shop labels, collection names and HTML leftovers, and names the colour of a bare title', () => {
+    expect(displayTitle('Rtw | Shalwar', 'white', 'cotton', 'trouser')).toBe('White Shalwar');
+    expect(displayTitle('Rtw | Kurta & Trouser', 'black', 'cotton', 'kurta')).toBe('Black Kurta & Trouser');
+    expect(displayTitle('Rts | Blended', 'navy', 'blended', 'shalwar kameez')).toBe('Navy Blended Shalwar Kameez');
+    expect(displayTitle('Embroidered Waistcoat | Premium Collection Maroon', 'maroon', 'jacquard', 'waistcoat')).toBe('Maroon Embroidered Waistcoat');
+    expect(displayTitle('D-Blue Wash &amp; Wear Shalwar Kameez', 'navy', 'wash & wear', 'shalwar kameez')).toBe('D-Blue Wash & Wear Shalwar Kameez');
+    expect(displayTitle('Blazer', 'black', 'polyester', 'blazer')).toBe('Black Blazer');
+    expect(displayTitle('Shawl', 'royal', 'wool', 'shawl')).toBe('Royal blue Shawl');
+    expect(displayTitle('BEIGE PLAIN WAISTCOAT|JJVCA33182', 'beige', 'cotton', 'waistcoat')).toBe('Beige Plain Waistcoat');
+    expect(displayTitle('Textured Woolen Waistcoat SIGNATURE COLLECTION INDIGO BLUE', 'navy', 'wool', 'waistcoat')).toBe('Textured Woolen Waistcoat Indigo Blue');
+    expect(displayTitle('Pashmina Blended Shawl with Gift Box SPS 3', 'grey', 'pashmina', 'shawl')).toBe('Grey Pashmina Blended Shawl');
+    expect(displayTitle('Black', 'black', 'lawn', 'suit')).toBe('Black Lawn Suit');
+    // Titles that already name a colour, or say enough, stay as they are.
+    expect(displayTitle('Grey Lawn Kurti', 'grey', 'lawn', 'kurta')).toBe('Grey Lawn Kurti');
+    expect(displayTitle('Embroidered Lawn Kurta With Trousers', 'pink', 'lawn', 'kurta')).toBe('Embroidered Lawn Kurta With Trousers');
   });
 
   it('takes embellishment from the title, not marketing copy, and fabric from the title first', () => {

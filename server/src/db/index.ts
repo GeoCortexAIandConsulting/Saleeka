@@ -1,4 +1,5 @@
 import { MemoryCollection, type Collection } from './collection.js';
+import { INDEXES } from './indexes.js';
 import { MongoCollection, connectMongo } from './mongo.js';
 import type {
   Brand,
@@ -10,6 +11,7 @@ import type {
   PreviewImage,
   PreviewUsage,
   AppNotification,
+  Report,
   CatalogMeta,
   EventRecord,
   Look,
@@ -37,9 +39,12 @@ export interface Repos {
   previews: Collection<PreviewImage>;
   previewUsage: Collection<PreviewUsage>;
   notifications: Collection<AppNotification>;
+  reports: Collection<Report>;
   /** Catalog sync status (one document, id 'catalog') */
   meta: Collection<CatalogMeta>;
   close(): Promise<void>;
+  /** Resolves when the database answers (the health check gives it 2 seconds) */
+  ping(): Promise<void>;
 }
 
 export function createMemoryRepos(): Repos {
@@ -59,8 +64,10 @@ export function createMemoryRepos(): Repos {
     previews: new MemoryCollection<PreviewImage>(),
     previewUsage: new MemoryCollection<PreviewUsage>(),
     notifications: new MemoryCollection<AppNotification>(),
+    reports: new MemoryCollection<Report>(),
     meta: new MemoryCollection<CatalogMeta>(),
     close: async () => {},
+    ping: async () => {},
   };
 }
 
@@ -82,34 +89,12 @@ export async function createMongoRepos(uri: string, dbName: string): Promise<Rep
     previews: new MongoCollection<PreviewImage>(db, 'previews'),
     previewUsage: new MongoCollection<PreviewUsage>(db, 'previewUsage'),
     notifications: new MongoCollection<AppNotification>(db, 'notifications'),
+    reports: new MongoCollection<Report>(db, 'reports'),
     meta: new MongoCollection<CatalogMeta>(db, 'meta'),
     close: () => client.close(),
+    ping: async () => void (await db.command({ ping: 1 })),
   };
-  // Indexes that matter from day one.
-  await db.collection('users').createIndex({ email: 1 }, { unique: true });
-  // Usernames are unique; older accounts without one are left out of the rule until they pick one.
-  await db.collection('users').createIndex({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: 'string' } } });
-  await db.collection('products').createIndex({ slot: 1, inStock: 1 });
-  await db.collection('products').createIndex({ inStock: 1 }); // the in-memory catalogue loads in-stock pieces only
-  await db.collection('looks').createIndex({ userId: 1, saved: 1 });
-  await db.collection('events').createIndex({ brandId: 1, type: 1, at: -1 });
-  // Preview limits: a player's previews, and everyone's in the last day.
-  await db.collection('events').createIndex({ userId: 1, type: 1, at: -1 });
-  await db.collection('events').createIndex({ type: 1, at: -1 });
-  await db.collection('challenges').createIndex({ key: 1 }, { unique: true });
-  await db.collection('designs').createIndex({ challengeId: 1 });
-  await db.collection('designs').createIndex({ userId: 1 });
-  await db.collection('designVotes').createIndex({ designId: 1 });
-  await db.collection('designVotes').createIndex({ userId: 1 });
-  await db.collection('comments').createIndex({ designId: 1 });
-  await db.collection('comments').createIndex({ userId: 1 });
-  await db.collection('previews').createIndex({ key: 1 });
-  await db.collection('previews').createIndex({ userId: 1, at: -1 });
-  await db.collection('designs').createIndex({ previewId: 1 });
-  // The Runway's newest-first pages and the weekly/trending windows.
-  await db.collection('designs').createIndex({ status: 1, createdAt: -1 });
-  await db.collection('designs').createIndex({ challengeId: 1, status: 1, createdAt: -1 });
-  await db.collection('notifications').createIndex({ userId: 1, at: -1 });
-  await db.collection('notifications').createIndex({ actorId: 1 });
+  // Every index the busy lookups need (db/indexes.ts); creating one that exists already does nothing.
+  for (const ix of INDEXES) await db.collection(ix.collection).createIndex(ix.keys, ix.options ?? {});
   return repos;
 }

@@ -92,7 +92,8 @@ async function main() {
     const removedDemo = (await col.deleteMany({ demo: true })).deletedCount;
     await db.collection<any>('brands').deleteMany({ _id: { $in: DEMO_BRANDS.map((b) => b.id) } });
     for (const b of BRAND_SOURCES.filter((s) => imported.includes(s.id))) {
-      await db.collection<any>('brands').replaceOne({ _id: b.id }, { name: b.name, tier: b.tier }, { upsert: true });
+      // Name and tier only: an admin's on/off switch (enabled) survives every sync.
+      await db.collection<any>('brands').updateOne({ _id: b.id }, { $set: { name: b.name, tier: b.tier } }, { upsert: true });
     }
 
     const seen = new Map<string, string | null>();

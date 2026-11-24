@@ -37,7 +37,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  Object.assign(config.preview, { project: 'test-project', apiKey: '', free: 1, dailyLimit: 10, globalDailyCap: 1000, friendsForCredit: 3, friendCreditCap: 5, requireVerifiedEmail: true, off: false });
+  Object.assign(config.preview, { project: 'test-project', apiKey: '', free: 1, dailyLimit: 10, globalDailyCap: 1000, friendsForCredit: 1, likesForCredit: 3, friendCreditCap: 5, requireVerifiedEmail: true, off: false });
   geminiDelay = 0;
 });
 
@@ -68,19 +68,61 @@ const preview = async (agent: ReturnType<typeof request.agent>) => agent.post(`/
 const publishNew = async (agent: ReturnType<typeof request.agent>) => agent.post(`/api/game/designs/${await draft(agent)}/publish`).expect(200);
 const status = async (agent: ReturnType<typeof request.agent>) => (await agent.get('/api/game/preview')).body.status;
 
-describe('email confirmation finishes the account', () => {
-  it('the account cannot be used until the link is opened; the link signs the player in', async () => {
-    const email = `new${++n}@example.com`;
-    const visitor = request.agent(app);
-    const res = await visitor.post('/api/auth/signup').send({ email, password: 'correct-horse-9', name: 'New', username: usernameFor(email), consent: true });
-    expect(res.status).toBe(201);
-    expect((await visitor.get('/api/me')).status).toBe(401);
-    expect((await request(app).post('/api/auth/login').send({ email, password: 'correct-horse-9' })).status).toBe(403);
-    expect(linkTo(email)!.pathname).toBe('/verify');
-    await visitor.post('/api/auth/verify').send({ token: linkTo(email)!.searchParams.get('token') }).expect(200);
-    expect((await visitor.get('/api/me')).body.user.emailVerified).toBe(true);
-    // From now on, a normal sign-in.
+/** Signs up without opening the confirmation link: signed in, email not confirmed yet. */
+async function unconfirmed({ ref }: { ref?: string } = {}) {
+  const agent = request.agent(app);
+  const email = `pending${++n}@example.com`;
+  await agent.post('/api/auth/signup').send({ email, password: 'correct-horse-9', name: `Pending ${n}`, username: usernameFor(email), consent: true, ...(ref ? { ref } : {}) }).expect(201);
+  const id = (await agent.get('/api/me')).body.user.id as string;
+  return { agent, email, id };
+}
+
+describe('email confirmation', () => {
+  it('sign-up signs the player in; the link confirms the email', async () => {
+    const { agent, email } = await unconfirmed();
+    expect((await agent.get('/api/me')).body.user.emailVerified).toBe(false);
     expect((await request(app).post('/api/auth/login').send({ email, password: 'correct-horse-9' })).status).toBe(200);
+    expect(linkTo(email)!.pathname).toBe('/verify');
+    await agent.post('/api/auth/verify').send({ token: linkTo(email)!.searchParams.get('token') }).expect(200);
+    expect((await agent.get('/api/me')).body.user.emailVerified).toBe(true);
+  });
+
+  it('an unconfirmed player can publish but not preview until they confirm', async () => {
+    const { agent, email } = await unconfirmed();
+    expect(await status(agent)).toMatchObject({ verified: false, blocked: 'verify' });
+    const blocked = await preview(agent);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toMatch(/confirm your email/i);
+    await publishNew(agent);
+    await agent.post('/api/auth/verify').send({ token: linkTo(email)!.searchParams.get('token') }).expect(200);
+    expect(await status(agent)).toMatchObject({ verified: true, blocked: null, left: 1 });
+  });
+
+  it('a signed-in player can ask for a new link, and hears "we just sent one" if they ask again too soon', async () => {
+    const { agent, email } = await unconfirmed();
+    await request(app).post('/api/me/verify/resend').expect(401); // signed out
+    const soon = await agent.post('/api/me/verify/resend');
+    expect(soon.status).toBe(429); // sign-up just sent one
+    expect(soon.body.error).toMatch(/we just sent one/i);
+    const before = sentInTests.filter((m) => m.to === email).length;
+    await repos.users.update({ email }, { verifySentAt: new Date(Date.now() - 2 * 60 * 1000).toISOString() });
+    const ok = await agent.post('/api/me/verify/resend');
+    expect(ok.status).toBe(200);
+    expect(ok.body.devLink).toMatch(/\/verify\?token=/);
+    expect(sentInTests.filter((m) => m.to === email).length).toBe(before + 1);
+    expect((await agent.post('/api/me/verify/resend').send()).status).toBe(429); // and again right away
+    // Once confirmed there is nothing to send.
+    await agent.post('/api/auth/verify').send({ token: linkTo(email)!.searchParams.get('token') }).expect(200);
+    expect((await agent.post('/api/me/verify/resend')).body).toMatchObject({ ok: true, verified: true });
+  });
+
+  it('an invited friend counts only with a confirmed email, also when they confirm after publishing', async () => {
+    const host = await player();
+    const friends = [await unconfirmed({ ref: host.id }), await unconfirmed({ ref: host.id }), await unconfirmed({ ref: host.id })];
+    for (const f of friends) await publishNew(f.agent);
+    expect(await status(host.agent)).toMatchObject({ friends: 0, earned: 0 });
+    for (const f of friends) await f.agent.post('/api/auth/verify').send({ token: linkTo(f.email)!.searchParams.get('token') }).expect(200);
+    expect(await status(host.agent)).toMatchObject({ friends: 3, earned: 3 });
   });
 
   it('a link works once, a wrong one is refused, and only a hash of it is stored', async () => {
@@ -115,26 +157,64 @@ describe('email confirmation finishes the account', () => {
     expect(res.body.error).toMatch(/expired/);
   });
 
-  it('an older account that never confirmed is signed out and asked to confirm once', async () => {
+  it('an older account that never confirmed stays signed in and is asked to confirm', async () => {
     await repos.users.insert({ id: 'legacy-1', email: 'legacy@example.com', name: 'Legacy', passwordHash: 'x', consentAt: '2026-11-01T00:00:00Z', createdAt: '2026-11-01T00:00:00Z' });
     const res = await request(app).get('/api/me').set('Cookie', `${COOKIE}=${signToken('legacy-1')}`);
-    expect(res.status).toBe(401);
-    expect(String(res.headers['set-cookie'])).toContain(`${COOKIE}=;`);
+    expect(res.status).toBe(200);
+    expect(res.body.user.emailVerified).toBe(false);
   });
 });
 
 describe('preview budget', () => {
-  it('one free preview for life, then a friendly message about inviting friends', async () => {
+  it('one free preview for life, then a friendly message about likes and friends', async () => {
     const { agent } = await player();
-    expect(await status(agent)).toMatchObject({ left: 1, free: 1, friendsToGo: 3 });
+    expect(await status(agent)).toMatchObject({ left: 1, free: 1, friendsToGo: 1 });
     expect((await preview(agent)).status).toBe(200);
     const second = await preview(agent);
     expect(second.status).toBe(429);
-    expect(second.body.error).toMatch(/3 friends who join from your share link/);
+    expect(second.body.error).toMatch(/Get another when 3 people like one of your looks, or when a friend joins from your link and publishes a look/);
     expect(await status(agent)).toMatchObject({ left: 0, used: 1, blocked: 'used-up' });
   });
 
-  it('every 3 friends who join from the share link and publish a look earn one more preview', async () => {
+  it('each friend who joins from the share link earns +1 preview with their FIRST published look', async () => {
+    const host = await player();
+    await preview(host.agent);
+    expect(await status(host.agent)).toMatchObject({ left: 0, blocked: 'used-up' });
+    const friend = await player({ ref: host.id });
+    expect((await repos.users.findOne({ id: friend.id }))!.referredBy).toBe(host.id);
+    // Joining, or saving a draft, is not enough.
+    await draft(friend.agent);
+    expect(await status(host.agent)).toMatchObject({ friends: 0, earned: 0 });
+    await publishNew(friend.agent);
+    expect(await status(host.agent)).toMatchObject({ friends: 1, earned: 1, left: 1, blocked: null });
+    // Once per friend: more looks from the same friend earn nothing more.
+    await publishNew(friend.agent);
+    expect(await status(host.agent)).toMatchObject({ friends: 1, earned: 1 });
+    const news = (await host.agent.get('/api/notifications')).body.notifications as Array<{ type: string; text: string }>;
+    expect(news.filter((x) => x.type === 'friend').map((x) => x.text)).toEqual(['Player joined from your link: +1 preview']);
+  });
+
+  it('friends earn at most 5 previews ever; the sixth friend still says thanks', async () => {
+    const host = await player();
+    for (let i = 0; i < 6; i++) await publishNew((await player({ ref: host.id })).agent);
+    expect(await status(host.agent)).toMatchObject({ friends: 6, earned: 5, canEarn: false });
+    const texts = ((await host.agent.get('/api/notifications')).body.notifications as Array<{ text: string }>).map((x) => x.text);
+    expect(texts.filter((t) => t.endsWith('+1 preview'))).toHaveLength(5);
+    expect(texts).toContain('Player joined from your link. Thanks for sharing Saleeqa!');
+  });
+
+  it('never for yourself', async () => {
+    const me = await player();
+    await repos.users.update({ id: me.id }, { referredBy: me.id });
+    await publishNew(me.agent);
+    expect(await status(me.agent)).toMatchObject({ friends: 0, earned: 0 });
+    // And signing up with a made-up or empty ref links to nobody.
+    const odd = await player({ ref: 'no-such-player' });
+    expect((await repos.users.findOne({ id: odd.id }))!.referredBy).toBeUndefined();
+  });
+
+  it('with PREVIEW_FRIENDS_FOR_CREDIT=3, every 3 friends earn one more preview', async () => {
+    config.preview.friendsForCredit = 3;
     const host = await player();
     await preview(host.agent);
     const friends = [await player({ ref: host.id }), await player({ ref: host.id })];
@@ -151,8 +231,8 @@ describe('preview budget', () => {
     expect((await preview(host.agent)).status).toBe(200);
 
     const news = JSON.stringify((await host.agent.get('/api/notifications')).body);
-    expect(news).toMatch(/You earned a free AI preview!/);
-    expect(news).toMatch(/1 more friend for a free AI preview/);
+    expect(news).toMatch(/Player joined from your link: \+1 preview/);
+    expect(news).toMatch(/Player joined from your link: 1 more friend for a free preview/);
   });
 
   it('a share link from nobody, or a friend who never publishes, earns nothing', async () => {
@@ -167,10 +247,61 @@ describe('preview budget', () => {
     config.preview.friendCreditCap = 1;
     const host = await player();
     for (let i = 0; i < 6; i++) await publishNew((await player({ ref: host.id })).agent);
-    expect(await status(host.agent)).toMatchObject({ friends: 6, earned: 1, friendsToGo: 0 });
+    expect(await status(host.agent)).toMatchObject({ friends: 6, earned: 1, friendsToGo: 0, canEarn: false });
   });
 
-  it('a daily cap across all players: “come back tomorrow”', async () => {
+  describe('previews earned from likes', () => {
+  const like = (agent: ReturnType<typeof request.agent>, id: string, up: boolean | null = true) => agent.post(`/api/game/designs/${id}/vote`).send({ up }).expect(200);
+  const publishedId = async (agent: ReturnType<typeof request.agent>) => {
+    const id = await draft(agent);
+    await agent.post(`/api/game/designs/${id}/publish`).expect(200);
+    return id;
+  };
+
+  it('a look liked by 3 other confirmed players earns its designer one preview, once per look', async () => {
+    const host = await player();
+    await preview(host.agent);
+    const look = await publishedId(host.agent);
+    const fans = [await player(), await player(), await player(), await player()];
+    await like(host.agent, look); // the designer's own like never counts
+    await like(fans[0].agent, look);
+    await like(fans[1].agent, look);
+    expect(await status(host.agent)).toMatchObject({ earned: 0, left: 0, blocked: 'used-up' });
+    await like(fans[2].agent, look);
+    expect(await status(host.agent)).toMatchObject({ earned: 1, left: 1, blocked: null });
+    expect(JSON.stringify((await host.agent.get('/api/notifications')).body)).toMatch(/You earned a free AI preview!/);
+    // Taking a like back and liking again, or a fourth like, earns nothing more for this look.
+    await like(fans[2].agent, look, null);
+    await like(fans[2].agent, look);
+    await like(fans[3].agent, look);
+    expect((await status(host.agent)).earned).toBe(1);
+    // Another look can earn one more.
+    const second = await publishedId(host.agent);
+    for (const f of fans.slice(0, 3)) await like(f.agent, second);
+    expect((await status(host.agent)).earned).toBe(2);
+  });
+
+  it('likes from players who have not confirmed their email do not count', async () => {
+    const host = await player();
+    const look = await publishedId(host.agent);
+    const pending = [await unconfirmed(), await unconfirmed()];
+    await like((await player()).agent, look);
+    for (const p of pending) await like(p.agent, look);
+    expect((await status(host.agent)).earned).toBe(0);
+  });
+
+  it('likes and friends share one cap', async () => {
+    config.preview.friendCreditCap = 1;
+    const host = await player();
+    for (let i = 0; i < 3; i++) await publishNew((await player({ ref: host.id })).agent);
+    expect(await status(host.agent)).toMatchObject({ earned: 1, canEarn: false });
+    const look = await publishedId(host.agent);
+    for (let i = 0; i < 3; i++) await like((await player()).agent, look);
+    expect((await status(host.agent)).earned).toBe(1);
+  });
+  });
+
+  it('a daily cap across all players: “resting for today”', async () => {
     const before = await repos.events.count({ type: 'preview' });
     config.preview.globalDailyCap = before + 1;
     const a = await player();
@@ -178,7 +309,7 @@ describe('preview budget', () => {
     expect((await preview(a.agent)).status).toBe(200);
     const res = await preview(b.agent);
     expect(res.status).toBe(429);
-    expect(res.body.error).toMatch(/come back tomorrow/i);
+    expect(res.body.error).toMatch(/resting for today.*preview it tomorrow/i);
   });
 
   it('the per-player daily limit still applies', async () => {
@@ -207,7 +338,7 @@ describe('preview budget', () => {
     const { agent } = await player();
     for (const off of [{ off: true }, { globalDailyCap: 0 }, { dailyLimit: 0 }]) {
       Object.assign(config.preview, { off: false, globalDailyCap: 1000, dailyLimit: 10 }, off);
-      expect(await status(agent)).toMatchObject({ blocked: 'off', message: 'Previews are resting for today. Publish your look now.' });
+      expect(await status(agent)).toMatchObject({ blocked: 'off', message: 'Previews are resting for today. Publish your look now and preview it tomorrow.' });
       const res = await preview(agent);
       expect(res.status).toBe(429);
       expect(res.body.error).toMatch(/resting/);

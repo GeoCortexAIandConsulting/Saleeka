@@ -60,19 +60,30 @@ export async function askShop(p: Product, get = quickGet): Promise<LiveStock> {
   }
 }
 
+/**
+ * One piece's live stock, through the 15-minute cache: a piece asked about recently is not asked
+ * again (the catalog spot check uses this too). `fresh` says whether the shop was asked just now.
+ */
+export async function liveCheck(p: Product, get = quickGet): Promise<LiveStock & { fresh: boolean }> {
+  const now = Date.now();
+  const hit = cache.get(p.id);
+  if (hit && now - hit.at < CACHE_MS) return { ...hit.value, fresh: false };
+  const value = await askShop(p, get);
+  if (value.checked) {
+    cache.set(p.id, { at: now, value });
+    if (cache.size > 5000) cache.delete(cache.keys().next().value!);
+  }
+  return { ...value, fresh: true };
+}
+
 /** Live stock for up to a dozen pieces; changes are saved, so the Studio stops offering sold-out pieces. */
 export async function liveStock(repos: Repos, ids: string[], store?: CatalogStore, get = quickGet): Promise<LiveStock[]> {
   const unique = [...new Set(ids)].slice(0, 12);
   const products = await repos.products.find({ id: { $in: unique } });
-  const now = Date.now();
   const results = await Promise.all(
     products.map(async (p) => {
-      const hit = cache.get(p.id);
-      if (hit && now - hit.at < CACHE_MS) return hit.value;
-      const value = await askShop(p, get);
-      if (value.checked) {
-        cache.set(p.id, { at: now, value });
-        if (cache.size > 5000) cache.delete(cache.keys().next().value!);
+      const { fresh, ...value } = await liveCheck(p, get);
+      if (fresh && value.checked) {
         if (value.inStock !== p.inStock || value.price !== p.price) {
           await repos.products.update({ id: p.id }, { inStock: value.inStock, price: value.price, checkedAt: value.checkedAt });
           store?.patch(p.id, { inStock: value.inStock, price: value.price });

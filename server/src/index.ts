@@ -2,21 +2,15 @@ import { config } from './config.js';
 import { createApp } from './app.js';
 import { createMemoryRepos, createMongoRepos } from './db/index.js';
 import { createLlm } from './services/llm.js';
+import { settingWarnings } from './settingsCheck.js';
 
 async function main() {
   const repos = config.mongoUri
     ? await createMongoRepos(config.mongoUri, config.mongoDb)
     : createMemoryRepos();
-  if (!config.mongoUri) {
-    console.warn('MONGODB_URI is not set: using the in-memory demo store. Data resets on restart.');
-  }
-  if (config.isProd && (config.email.provider === 'log' || !config.email.apiKey)) {
-    console.warn(
-      'EMAIL IS NOT SET UP: set EMAIL_PROVIDER, EMAIL_API_KEY and EMAIL_FROM. Until then no verification or ' +
-        'password-reset email is sent, so players cannot confirm their email or make AI previews.',
-    );
-  }
-  if (config.preview.off) console.warn('AI previews are switched off for everyone (PREVIEWS_OFF=true).');
+  // Live: one plain warning per missing optional setting (none of them stops the server).
+  if (config.isProd) for (const w of settingWarnings(process.env)) console.warn(w);
+  else if (!config.mongoUri) console.warn('MONGODB_URI is not set: using the in-memory demo store. Data resets on restart.');
   const llm = createLlm();
   const app = await createApp({ repos, llm });
   const server = app.listen(config.port, () => {

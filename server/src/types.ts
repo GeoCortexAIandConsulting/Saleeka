@@ -55,6 +55,8 @@ export interface Brand {
   id: string;
   name: string;
   tier: Tier;
+  /** Switched off by an admin: the brand's pieces disappear everywhere (absent = on) */
+  enabled?: boolean;
 }
 
 export interface Product {
@@ -129,8 +131,10 @@ export interface User {
   referralCounted?: boolean;
   /** Friends who joined from this player's link and published a look */
   referrals?: number;
-  /** Previews earned from those friends (capped) */
+  /** Previews earned from those friends (capped, together with likeCredits) */
   referralCredits?: number;
+  /** Previews earned by looks that reached enough likes (capped, together with referralCredits) */
+  likeCredits?: number;
 }
 
 export interface AvatarFace {
@@ -260,6 +264,20 @@ export interface Challenge {
   brandIds?: string[];
   /** A player's own brief: the outfit costs at most this (PKR) */
   maxPrice?: number;
+  /** Seed briefs: the title players see, instead of one made from the occasion and colours */
+  title?: string;
+  /** Seed briefs: a short name for the look, for share messages ("Mehndi", "Nikkah") */
+  name?: string;
+  /** The whole look (every piece together) must cost at most this (PKR) */
+  lookBudget?: number;
+  /** Slots this brief always needs, on top of the usual ones (a coat or shawl, a waistcoat) */
+  requires?: Slot[];
+  /** Only outfits of these silhouettes ("shalwar kameez", "kurta") */
+  mainStyles?: string[];
+  /** A prize line shown with the brief while it is featured, e.g. "Top-voted look wins a PKR 10,000 voucher" */
+  prize?: string;
+  /** Launch briefs: featured, and listed first, until this moment (ISO) */
+  featuredUntil?: string;
   /** seed: ships with the app; search: from stylist searches; custom: a player's own brief (never listed) */
   source: 'seed' | 'search' | 'custom';
   /** How many stylist searches asked for this */
@@ -285,6 +303,29 @@ export interface Design {
   creditEarned?: boolean;
   /** The AI image of the look on a model, if the designer previewed it */
   previewId?: string;
+  /** Taken down by an admin after a report: gone from the Runway, profiles and its own page */
+  hidden?: boolean;
+}
+
+/** Why a player reports a look or a comment. */
+export const REPORT_REASONS = ['spam', 'offensive', 'inappropriate', 'not-a-look', 'other'] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+/** A player's report of a look or a comment, for an admin to review. id: `${reporterId}:${target}:${targetId}` (one per player and thing). */
+export interface Report {
+  id: string;
+  reporterId: string;
+  target: 'look' | 'comment';
+  targetId: string;
+  /** The look the reported thing belongs to (the look itself, or the comment's look) */
+  designId: string;
+  reason: ReportReason;
+  note?: string;
+  status: 'open' | 'closed';
+  at: string;
+  closedAt?: string;
+  /** What the admin did when closing it */
+  outcome?: 'hidden' | 'deleted' | 'no-action';
 }
 
 /** Something that happened to a player's look or comment: a like, a comment, or a reply. */
@@ -292,7 +333,7 @@ export interface AppNotification {
   id: string;
   /** Who it is for */
   userId: string;
-  type: 'like' | 'comment' | 'reply' | 'friend';
+  type: 'like' | 'comment' | 'reply' | 'friend' | 'credit';
   /** Who did it */
   actorId: string;
   designId: string;

@@ -37,9 +37,11 @@ export const config = {
     dailyLimit: envCount('PREVIEW_DAILY_LIMIT', 10),
     /** Previews every account gets for life, before any are earned */
     free: envCount('PREVIEW_FREE', 1),
-    /** One more preview for every this many friends who join from the player's share link and publish a look */
-    friendsForCredit: Math.max(1, envCount('PREVIEW_FRIENDS_FOR_CREDIT', 3)),
-    /** Most previews one player can ever earn from friends */
+    /** One more preview for every this many friends who join from the player's share link and publish a look (1 = each friend) */
+    friendsForCredit: Math.max(1, envCount('PREVIEW_FRIENDS_FOR_CREDIT', 1)),
+    /** One more preview when a published look gets this many likes from other confirmed players (once per look) */
+    likesForCredit: Math.max(1, envCount('PREVIEW_LIKES_FOR_CREDIT', 3)),
+    /** Most previews one player can ever earn, from friends and likes together */
     friendCreditCap: envCount('PREVIEW_FRIEND_CREDIT_CAP', 5),
     /** New images across all players per 24 hours: one busy night cannot spend the Google credit (0 = none) */
     globalDailyCap: envCount('PREVIEW_GLOBAL_DAILY_CAP', 300),

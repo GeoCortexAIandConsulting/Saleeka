@@ -29,18 +29,18 @@ describe('auth and privacy', () => {
     expect((await request(app).post('/api/auth/signup').send({ ...base, username: 'a!', consent: true })).status).toBe(400);
     const made = await request(app).post('/api/auth/signup').send({ ...base, consent: true });
     expect(made.status).toBe(201);
-    // Not signed in yet: the account is finished by the link in the email.
-    expect(made.body).toMatchObject({ pending: true, email: 'a@example.com' });
+    // Signed in straight away; the email still has to be confirmed (for AI previews).
+    expect(made.body).toMatchObject({ email: 'a@example.com', user: { username: 'ayesha.k', emailVerified: false } });
     // On a laptop without an email service, the link comes back too (so the owner can test).
     expect(made.body.devLink).toMatch(/\/verify\?token=/);
-    expect(made.headers['set-cookie']).toBeUndefined();
+    expect(String(made.headers['set-cookie'])).toContain('saleeqa_token=');
     expect((await request(app).post('/api/auth/signup').send({ ...base, username: 'someone.else', consent: true })).status).toBe(409);
   });
 
-  it('cannot sign in until the email is confirmed; the link signs the player in, once', async () => {
+  it('can sign in before confirming; the link confirms the email and signs the player in, once', async () => {
     const early = await request(app).post('/api/auth/login').send({ email: 'a@example.com', password: 'correct-horse-9' });
-    expect(early.status).toBe(403);
-    expect(early.body.error).toMatch(/confirm your email/i);
+    expect(early.status).toBe(200);
+    expect(early.body.user.emailVerified).toBe(false);
     // A new link can be asked for by email, with the same answer for any address.
     await request(app).post('/api/auth/verify/resend').send({ email: 'nobody@example.com' }).expect(200);
     const agent = request.agent(app);
@@ -183,7 +183,8 @@ describe('full shopper journey', () => {
     const main = swap.body.look.items[0].product;
     const go = await agent.get(`/api/go/${main.id}?look=${look.id}`);
     expect(go.status).toBe(302);
-    expect(go.headers.location).toBe(main.url);
+    // A stylist look (not a Runway look) has no challenge: the campaign is "look".
+    expect(go.headers.location).toBe(`${main.url}?utm_source=saleeqa&utm_medium=referral&utm_campaign=look`);
 
     // Partner report needs the admin key and shows real counts.
     expect((await request(app).get(`/api/partners/${main.brandId}/report`)).status).toBe(403);

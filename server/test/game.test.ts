@@ -145,6 +145,13 @@ describe('dress-up game', () => {
       const { body } = await agent.get(`/api/game/challenges/${c.id}/items`);
       expect(body.items.main.length, c.id).toBeGreaterThan(0);
       const { pick } = cheapestDesign(body.items, c.wantsDupatta);
+      // What the brief always asks for (a coat or shawl, a waistcoat): the cheapest one.
+      for (const slot of c.requires as string[]) {
+        if (pick.some((x: { slot: string }) => x.slot === slot)) continue;
+        const cheapest = [...(body.items[slot] as P[])].sort((a, b) => a.price - b.price)[0];
+        expect(cheapest, `${c.id}: no ${slot}`).toBeTruthy();
+        pick.push({ slot, productId: cheapest.id });
+      }
       const res = await agent.post('/api/game/designs').send({ challengeId: c.id, items: pick });
       expect(res.status, `${c.id}: ${res.body.error}`).toBe(201);
     }

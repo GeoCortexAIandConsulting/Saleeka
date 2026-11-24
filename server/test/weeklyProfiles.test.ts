@@ -54,7 +54,8 @@ describe('challenge of the week', () => {
     const [women] = featuredIds();
     // The Studio lists women's and men's challenges apart: each list starts with its featured one.
     expect(list.filter((c: any) => c.gender === 'female')[0]).toMatchObject({ id: women, featured: true });
-    expect(list.filter((c: any) => c.featured)).toHaveLength(2);
+    // Two in a normal week (women's and men's), the five launch briefs during launch week.
+    expect(list.filter((c: any) => c.featured)).toHaveLength(featuredIds().length);
 
     const quiet = await publish(a, women);
     const loved = await publish(a, women);

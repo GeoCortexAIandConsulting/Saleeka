@@ -247,24 +247,51 @@ function seasonsOf(fabric: string, t: string): Product['seasons'] {
   return ['all'];
 }
 
+/** Palette names as people say them in a title ("Royal blazer" reads oddly; "Royal blue blazer" does not). */
+const COLOUR_WORD: Record<string, string> = { sky: 'Sky blue', royal: 'Royal blue', blush: 'Blush pink', mint: 'Mint green', lemon: 'Lemon yellow', sage: 'Sage green', plum: 'Plum purple' };
+const colourWord = (c: string) => COLOUR_WORD[c] ?? c.charAt(0).toUpperCase() + c.slice(1);
+/** Any colour already named in a title. */
+const NAMES_A_COLOUR =
+  /\b(black|white|off[- ]?white|ivory|cream|beige|fawn|grey|gray|charcoal|brown|camel|tan|khaki|gold(en)?|silver|copper|bronze|pink|blush|mint|lilac|lavender|purple|violet|sky|peach|lemon|yellow|mustard|orange|red|rust|olive|sage|green|maroon|burgundy|wine|emerald|teal|turquoise|aqua|navy|blue|royal|plum|magenta|fuchsia|coral|multi(colou?r)?|d-blue|l-blue)\b/i;
+/** A title that is only a fabric ("Blended", "Cotton") says nothing about the piece. */
+const ONLY_A_FABRIC = /^(blended|cotton|lawn|khaddar|linen|silk|chiffon|organza|velvet|karandi|cambric|jacquard|wool|woolen|marina|denim|viscose|polyester|wash ?& ?wear)$/i;
+const decodeEntities = (s: string) =>
+  s.replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#0?39;|&apos;/gi, "'").replace(/&nbsp;/gi, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+
 /**
  * Shop titles carry stock codes ("SHIRT (E2376/108/001)", "Women Shawl-1721512118",
- * "2 PIECE - PRINTED SUIT - ST2STE-PRET26WV2-64"): drop them, and calm ALL-CAPS titles. A title that
- * is only a code ("SS23BSP226F") is replaced by a description of the piece.
+ * "2 PIECE - PRINTED SUIT - ST2STE-PRET26WV2-64"), shop labels before a bar ("Rtw | Shalwar"),
+ * collection names after one ("Waistcoat | Premium Collection Maroon") and HTML leftovers ("&amp;"):
+ * drop them, and calm ALL-CAPS titles. A short title that names no colour gets the piece's colour
+ * ("Blazer" becomes "Black Blazer"), and one that is only a code ("SS23BSP226F") or only a fabric
+ * ("Rts | Blended") is replaced by a description of the piece.
  */
 export function displayTitle(raw: string, color: string, fabric: string, kind: string): string {
   const isCode = (w: string) => /\d/.test(w) && /^[A-Z0-9/_.-]{5,}$/i.test(w) && !/^\d+[- ]?(?:pc|pcs|piece|pieces)$/i.test(w);
-  let t = raw
+  let t = decodeEntities(raw)
+    .replace(/\s*\|\s*/g, ' | ') // "WAISTCOAT|JJVCA33182": a bar with no spaces hides the code
+    .replace(/^\s*[A-Za-z]{2,5}\s*\|\s*/, '') // "Rtw | Shalwar": a shop label
+    .replace(/\s*\|\s*[^|]*\bcollection\b[^|]*$/i, '') // "Waistcoat | Premium Collection Maroon"
+    .replace(/\s*\b[A-Za-z]+\s+collection\b/gi, '') // "Waistcoat Signature Collection Indigo Blue"
+    .replace(/\s+with\s+gift\s+box\b.*$/i, '') // "Pashmina Shawl with Gift Box SPS 3"
     .replace(/\(([^)]*\d[^)]*)\)/g, ' ') // "(E2376/108/001)"
     .replace(/[-–]\s*\d{6,}\b/g, ' ') // "-1721512118"
     .split(/\s+-\s+|\s+/)
     .filter((w) => w && !isCode(w))
     .join(' ')
     .replace(/^[\s|–-]+|[\s|–-]+$/g, '') // a separator left behind by a removed code: "Grey Lawn Kurti | JLK-123"
+    .replace(/\s*\|\s*/g, ' – ') // any other bar between two parts reads as a dash
     .replace(/\s{2,}/g, ' ')
     .trim();
   if (!t || !/[a-z]{3,}/i.test(t)) return `${color} ${fabric} ${kind}`.replace(/\s+/g, ' ').trim();
-  if (t === t.toUpperCase()) t = t.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase()).replace(/\b(\d)(Pc|Pcs|Piece)\b/g, '$1 $2');
+  const titleCase = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase());
+  if (t === t.toUpperCase()) t = titleCase(t).replace(/\b(\d)(Pc|Pcs|Piece)\b/g, '$1 $2');
+  // A few shouted words in a normal title: "Waistcoat INDIGO BLUE" becomes "Waistcoat Indigo Blue".
+  else t = t.replace(/\b[A-Z]{3,}\b/g, (w) => titleCase(w));
+  if (ONLY_A_FABRIC.test(t)) return `${colourWord(color)} ${t} ${titleCase(kind)}`;
+  // Only a colour ("Black"): say what the piece is.
+  if (t.split(/\s+/).every((w) => NAMES_A_COLOUR.test(w))) return `${t} ${titleCase(fabric)} ${titleCase(kind)}`;
+  if (t.split(/\s+/).length <= 3 && !NAMES_A_COLOUR.test(t)) return `${colourWord(color)} ${t}`;
   return t;
 }
 

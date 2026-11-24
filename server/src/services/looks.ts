@@ -4,6 +4,7 @@ import type { Look, Product, Slot } from '../types.js';
 import type { ComposedLook } from './composer.js';
 import type { LookFacts } from './llm.js';
 import { tasteHits } from './llm.js';
+import { withoutDisabled } from './brands.js';
 
 export const uid = () => randomUUID();
 
@@ -59,7 +60,7 @@ function sortItems<T extends { slot: Slot }>(items: T[]): T[] {
 
 export async function hydrateLooks(repos: Repos, looks: Look[]): Promise<HydratedLook[]> {
   const ids = [...new Set(looks.flatMap((l) => l.items.map((i) => i.productId)))];
-  const products = ids.length ? await repos.products.find({ id: { $in: ids } }) : [];
+  const products = await withoutDisabled(repos, ids.length ? await repos.products.find({ id: { $in: ids } }) : []);
   const byId = new Map(products.map((p) => [p.id, p]));
   return looks.map((l) => ({
     ...l,

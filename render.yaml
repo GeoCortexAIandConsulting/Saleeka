@@ -1,16 +1,18 @@
 # Render Blueprint: deploys the Express API and the Next.js web app as two web services.
 # Render dashboard → New → Blueprint → pick this repo. Values marked `sync: false` are asked for
-# when the Blueprint is created; secrets are never stored in this file.
+# when the Blueprint is created (or synced); secrets are never stored in this file.
+# test/renderYaml.test.ts checks every setting the code reads is listed here.
 services:
-  # Express API (server/)
+  # Express API (server/). Standard: 2 GB of memory (the catalogue is held in memory) and it never sleeps.
   - type: web
     name: saleeqa-api
     runtime: node
-    plan: free
+    plan: standard
     rootDir: server
     # --include=dev: TypeScript is a dev dependency and is needed for the build.
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
+    # Also checks the database answers within 2 seconds.
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
@@ -19,45 +21,88 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
-      # Full Atlas string with the real password, e.g.
-      # mongodb+srv://<user>:<password>@<cluster>/
+      # --- Database: the full Atlas string with the real password, e.g. mongodb+srv://<user>:<password>@<cluster>/
       - key: MONGODB_URI
         sync: false
       - key: MONGODB_DB
         value: saleeqa
-      # Public URL of the web service below (check it in the dashboard once created).
+      # --- The website's public address (email links and which site may call the API). Use your own domain once it is set up.
       - key: WEB_ORIGIN
         value: https://saleeqa-web.onrender.com
-      - key: LLM_PROVIDER
-        value: rules
-      # AI look preview: a Google Cloud API key restricted to the Vertex AI API (leave empty to hide it).
-      - key: GOOGLE_API_KEY
+      # --- Opens the /admin page (brands on/off, reports). A long random password; admin routes refuse everything while it is empty.
+      - key: ADMIN_KEY
         sync: false
-      # Most new AI previews across all players per day (a cap on what one busy night can cost).
-      - key: PREVIEW_GLOBAL_DAILY_CAP
-        value: "300"
-      # Emergency switch: set to true to stop new AI previews for everyone (publishing still works).
-      - key: PREVIEWS_OFF
-        value: "false"
-      # Account emails: resend or brevo, its API key, and a sender address it has verified.
+      # --- Launch contest deadline, Pakistan time (banner, prize line and board end then). Keep it equal to the web's NEXT_PUBLIC_LAUNCH_ENDS.
+      - key: LAUNCH_ENDS
+        value: "2026-12-03"
+      # --- Account emails (confirm email, reset password): resend or brevo, its API key, and a sender address it has verified.
       - key: EMAIL_PROVIDER
-        value: resend
+        sync: false
       - key: EMAIL_API_KEY
         sync: false
+      # e.g. Saleeqa <hello@your-domain.com>
       - key: EMAIL_FROM
         sync: false
+      # --- AI look preview (Gemini on Vertex AI): a Google Cloud API key restricted to the Vertex AI API.
+      # Leave both GOOGLE_API_KEY and GOOGLE_CLOUD_PROJECT empty to hide previews.
+      - key: GOOGLE_API_KEY
+        sync: false
+      # Only needed without an API key (a gcloud sign-in); leave empty when GOOGLE_API_KEY is set.
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GOOGLE_CLOUD_LOCATION
+        value: global
+      - key: PREVIEW_MODEL
+        value: gemini-3-pro-image
+      # What previews may cost (each new image is about $0.13):
+      # free previews per account for life,
+      - key: PREVIEW_FREE
+        value: "1"
+      # new images per player per day,
+      - key: PREVIEW_DAILY_LIMIT
+        value: "10"
+      # new images across all players per day (one busy night cannot spend the Google credit),
+      - key: PREVIEW_GLOBAL_DAILY_CAP
+        value: "300"
+      # one more preview for every N friends who join from a share link and publish a look,
+      - key: PREVIEW_FRIENDS_FOR_CREDIT
+        value: "1"
+      # one more preview when a look gets N likes (once per look),
+      - key: PREVIEW_LIKES_FOR_CREDIT
+        value: "3"
+      # the most previews one player can ever earn (friends and likes together),
+      - key: PREVIEW_FRIEND_CREDIT_CAP
+        value: "5"
+      # and a confirmed email first (so fake accounts cannot farm the free ones).
+      - key: PREVIEW_REQUIRE_VERIFIED_EMAIL
+        value: "true"
+      # Emergency switch: true stops new AI previews for everyone (publishing still works).
+      - key: PREVIEWS_OFF
+        value: "false"
+      # --- The AI stylist is hidden for launch, so it uses the built-in rules. LLM_BASE_URL, LLM_MODEL,
+      # LLM_API_KEY and LLM_STYLE_TIMEOUT_MS only matter with LLM_PROVIDER=openai: add them then.
+      - key: LLM_PROVIDER
+        value: rules
 
-  # Next.js web app (web/)
+  # Next.js web app (web/). Starter: never sleeps, so the first visitor does not wait.
   - type: web
     name: saleeqa-web
     runtime: node
-    plan: free
+    plan: starter
     rootDir: web
     buildCommand: npm install --include=dev && npm run build
     startCommand: npx next start -p $PORT
     envVars:
       - key: NODE_VERSION
         value: "22"
-      # Public URL of the API service above. Read at build time, so redeploy the web app if it changes.
+      # Public address of the API service above. Read at build time: redeploy the web app if it changes.
       - key: API_URL
         value: https://saleeqa-api.onrender.com
+      # The website's own public address: used for link previews (WhatsApp images and titles), the
+      # sitemap and share links. Read at build time; use your own domain once it is set up.
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://saleeqa-web.onrender.com
+      # Launch contest deadline for the countdown, Pakistan time. Read at build time; keep it equal to
+      # the API's LAUNCH_ENDS.
+      - key: NEXT_PUBLIC_LAUNCH_ENDS
+        value: "2026-12-03"
