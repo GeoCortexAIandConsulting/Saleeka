@@ -6,6 +6,7 @@ import Logo from '@/components/Logo';
 import NotificationBell from '@/components/NotificationBell';
 import TabBar from '@/components/TabBar';
 import UsernamePrompt from '@/components/UsernamePrompt';
+import VerifyBanner from '@/components/VerifyBanner';
 
 const LINKS = [
   // Studio: design looks · Runway: everyone's published looks. (The AI stylist is hidden for now:
@@ -80,6 +81,8 @@ export default function Header({ signedIn = true }: { signedIn?: boolean }) {
           )}
         </div>
       </header>
+      {/* For any signed-in player who has not confirmed their email yet (it checks for itself). */}
+      <VerifyBanner />
       {/* Outside the header: its blur would pin a fixed bar to the header instead of the screen. */}
       {signedIn && <TabBar />}
       {signedIn && <UsernamePrompt />}

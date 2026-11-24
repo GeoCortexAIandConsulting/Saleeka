@@ -115,6 +115,10 @@ export interface PreviewStatus {
   friendsForCredit: number;
   /** Friends still needed for the next free preview (0 once the most that can be earned is reached) */
   friendsToGo: number;
+  /** Likes one look needs (from other players) to earn a free preview */
+  likesForCredit: number;
+  /** More previews can still be earned (the cap for likes and friends together is not reached) */
+  canEarn: boolean;
   blocked: null | 'off' | 'verify' | 'used-up' | 'player-today' | 'everyone-today';
   message: string | null;
 }
@@ -142,6 +146,14 @@ export interface Challenge {
   tiers?: Array<'budget' | 'mid' | 'premium'>;
   brandIds?: string[];
   maxPrice?: number | null;
+  /** A short name for share messages ("Mehndi", "Nikkah") */
+  name?: string;
+  /** The whole look must cost at most this (PKR), e.g. "Mehndi look under PKR 20,000" */
+  lookBudget?: number | null;
+  /** Slots this brief always needs (a coat or shawl, a waistcoat) */
+  requires?: Slot[];
+  /** Shown while the brief is featured for launch: "Top-voted look wins a PKR 10,000 voucher" */
+  prize?: string | null;
   asks: number;
   designs: number;
 }
@@ -217,7 +229,7 @@ export interface LookComment {
 /** A like, comment or reply on one of the player's looks or comments, or a friend who joined from their link */
 export interface AppNotification {
   id: string;
-  type: 'like' | 'comment' | 'reply' | 'friend';
+  type: 'like' | 'comment' | 'reply' | 'friend' | 'credit';
   by: string;
   text: string | null;
   at: string;
@@ -243,6 +255,9 @@ export interface Weekly {
   challenges: Challenge[];
   top: FeedLook[];
 }
+
+/** The launch contest (GET /api/game/launch): its challenges, prize, deadline and top-10 board. */
+export type LaunchBoard = { active: false } | ({ active: true; prize: string } & Weekly);
 
 /** A piece's stock and price, asked of the brand's shop just now (GET /api/products/live). */
 export interface LiveStock {

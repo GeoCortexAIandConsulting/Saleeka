@@ -5,6 +5,7 @@ import Header from '@/components/Header';
 import LookBoard from '@/components/LookBoard';
 import LookComments, { ago } from '@/components/LookComments';
 import { AiBadge, Heart, HeartBurst, LikeButton, piecesOf, statesOf } from '@/components/LookParts';
+import ReportButton from '@/components/ReportButton';
 import ShareButtons from '@/components/ShareButtons';
 import { api, rupees } from '@/lib/api';
 import { SLOT_NAME } from '@/lib/lookRules';
@@ -12,6 +13,7 @@ import { useMaybeUser } from '@/lib/useMe';
 import { useLiveCounts, withCounts } from '@/lib/useLiveCounts';
 import { castVote } from '@/lib/vote';
 import type { FeedLook, LiveStock } from '@/lib/types';
+import { photo } from '@/lib/photo';
 
 /**
  * A look's own page: the look on a model (or its pieces board), every piece to shop with its photo
@@ -101,7 +103,7 @@ export default function LookView({ id }: { id: string }) {
                 {look.previewUrl && !showPieces ? (
                   <div className="relative select-none" onDoubleClick={likeByTap} title={me ? 'Double-tap to like' : undefined}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={look.previewUrl} alt={`${look.by}’s look on a model (AI preview)`} className="aspect-[3/4] w-full rounded-3xl bg-sand object-cover" draggable={false} />
+                    <img src={look.previewUrl} alt={`${look.by}’s look on a model (AI preview)`} fetchPriority="high" className="aspect-[3/4] w-full rounded-3xl bg-sand object-cover" draggable={false} />
                     <AiBadge />
                     {burst > 0 && <HeartBurst key={burst} />}
                   </div>
@@ -188,6 +190,11 @@ export default function LookView({ id }: { id: string }) {
                   compact
                   text={look.mine ? `I styled this ${look.challenge?.title ?? 'look'} on Saleeqa. What do you think?` : `Look at this ${look.challenge?.title ?? 'look'} on Saleeqa!`}
                 />
+                {me && !look.mine && (
+                  <div className="mt-2 flex flex-wrap text-xs text-ink/65">
+                    <ReportButton target="look" id={look.id} />
+                  </div>
+                )}
               </div>
 
               {/* --------------------------- shop the look --------------------------- */}
@@ -203,7 +210,7 @@ export default function LookView({ id }: { id: string }) {
                     <li key={slot} className={`flex items-center gap-3 rounded-2xl border border-line p-2.5 ${soldOut(p) ? 'bg-sand/60' : 'bg-white'}`}>
                       {p.images?.[0] ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-20 w-16 shrink-0 rounded-xl object-cover object-top" style={{ background: p.hex }} />
+                        <img src={photo(p.images[0], 160)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-20 w-16 shrink-0 rounded-xl object-cover object-top" style={{ background: p.hex }} />
                       ) : (
                         <span className="h-20 w-16 shrink-0 rounded-xl" style={{ background: p.hex }} />
                       )}

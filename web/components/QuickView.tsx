@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { rupees } from '@/lib/api';
 import { PALETTE_HEX } from '@/lib/palette';
 import type { PieceGroup, Product } from '@/lib/types';
+import { photo as sized } from '@/lib/photo';
 
 /**
  * A closer look at a piece before choosing it: every photo, its colours, fabric, what the outfit
@@ -60,7 +61,7 @@ export default function QuickView({ group, start, selected, swaps, onPick, onRem
         <div className="bg-sand/40 p-3">
           {photos[photo] ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={photos[photo]} alt={p.title} referrerPolicy="no-referrer" className="mx-auto aspect-[3/4] max-h-[40vh] md:max-h-[62vh] w-auto rounded-2xl object-contain" style={{ background: p.hex }} />
+            <img src={sized(photos[photo], 900)} alt={p.title} referrerPolicy="no-referrer" className="mx-auto aspect-[3/4] max-h-[40vh] md:max-h-[62vh] w-auto rounded-2xl object-contain" style={{ background: p.hex }} />
           ) : (
             <div className="mx-auto aspect-[3/4] max-h-[40vh] md:max-h-[62vh] rounded-2xl" style={{ background: p.hex }} />
           )}
@@ -69,7 +70,7 @@ export default function QuickView({ group, start, selected, swaps, onPick, onRem
               {photos.map((src, k) => (
                 <button key={src} type="button" onClick={() => setPhoto(k)} aria-label={`Photo ${k + 1}`} aria-pressed={k === photo} className={`shrink-0 overflow-hidden rounded-lg border-2 ${k === photo ? 'border-plum' : 'border-transparent'}`}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" referrerPolicy="no-referrer" className="h-12 w-9 object-cover object-top md:h-16 md:w-12" />
+                  <img src={sized(src, 120)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-12 w-9 object-cover object-top md:h-16 md:w-12" />
                 </button>
               ))}
             </div>

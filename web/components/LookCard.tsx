@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic';
 import { useState } from 'react';
 import type { Look, Slot } from '@/lib/types';
 import { rupees } from '@/lib/api';
+import { photo } from '@/lib/photo';
 
 // The 3D try-on (and three.js) loads only when someone opens it.
 const TryOn = dynamic(() => import('@/components/TryOn'), { ssr: false });
@@ -77,7 +78,8 @@ export default function LookCard({ look, rank, onSelect, selected, onSave, onSwa
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={mainPhoto}
+            src={photo(mainPhoto, 720)}
+            decoding="async"
             alt={`${main!.title} by ${main!.brandName}`}
             loading="lazy"
             referrerPolicy="no-referrer"
@@ -99,7 +101,8 @@ export default function LookCard({ look, rank, onSelect, selected, onSave, onSwa
             {product.images?.[0] ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={product.images[0]}
+                src={photo(product.images[0], 120)}
+                decoding="async"
                 alt=""
                 loading="lazy"
                 referrerPolicy="no-referrer"

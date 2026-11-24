@@ -8,6 +8,7 @@ import { AiBadge, HeartBurst, LikeButton, piecesOf, statesOf } from '@/component
 import { rupees } from '@/lib/api';
 import { castVote } from '@/lib/vote';
 import type { FeedLook } from '@/lib/types';
+import { photo } from '@/lib/photo';
 
 /** A look on the Runway or a player's page: its image, who made it, its pieces, likes and comments. */
 export default function LookTile({ look, onChange }: { look: FeedLook; onChange: (l: FeedLook) => void }) {
@@ -74,7 +75,7 @@ export default function LookTile({ look, onChange }: { look: FeedLook; onChange:
           {look.items.slice(0, 5).map(({ slot, product }) =>
             product.images?.[0] ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img key={slot} src={product.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-10 w-10 rounded-lg border border-line object-cover object-top" style={{ background: product.hex }} />
+              <img key={slot} src={photo(product.images[0], 100)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-10 w-10 rounded-lg border border-line object-cover object-top" style={{ background: product.hex }} />
             ) : (
               <span key={slot} className="h-10 w-10 rounded-lg border border-line" style={{ background: product.hex }} />
             ),

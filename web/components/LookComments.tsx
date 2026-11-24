@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import ReportButton from '@/components/ReportButton';
 import { api } from '@/lib/api';
 import type { FeedLook, LookComment } from '@/lib/types';
 
@@ -75,7 +76,7 @@ export default function LookComments({ look, onCount, joinHref }: { look: FeedLo
     <>
       <span className="font-semibold">{c.by}</span>{' '}
       <span className="break-words text-ink/85">{c.text}</span>
-      <span className="mt-0.5 flex gap-3 text-[11px] text-ink/65">
+      <span className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-ink/65">
         <span>{ago(c.at)}</span>
         {!joinHref && (
           <button type="button" onClick={() => startReply(c)} className="font-semibold underline-offset-2 hover:text-plum hover:underline">
@@ -87,6 +88,8 @@ export default function LookComments({ look, onCount, joinHref }: { look: FeedLo
             Delete
           </button>
         )}
+        {/* Signed-in players can report someone else's comment. */}
+        {!joinHref && !c.mine && <ReportButton target="comment" id={c.id} />}
       </span>
     </>
   );

@@ -6,6 +6,7 @@ import { outfitFromLook } from '@/lib/outfit';
 import { rupees } from '@/lib/api';
 import { useAvatar } from '@/lib/useAvatar';
 import type { Look } from '@/lib/types';
+import { photo } from '@/lib/photo';
 
 const SLOT_LABEL: Record<string, string> = { main: 'Outfit', bottom: 'Bottom', dupatta: 'Dupatta / scarf', footwear: 'Shoes', bag: 'Bag', jewelry: 'Jewellery' };
 
@@ -64,7 +65,7 @@ export default function TryOn({ look, onClose }: { look: Look; onClose: () => vo
                 <li key={slot} className="flex items-center gap-3">
                   {product.images?.[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={product.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-12 w-9 shrink-0 rounded-lg border border-line object-cover object-top" style={{ background: product.hex }} />
+                    <img src={photo(product.images[0], 100)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-12 w-9 shrink-0 rounded-lg border border-line object-cover object-top" style={{ background: product.hex }} />
                   ) : (
                     <div className="h-9 w-9 shrink-0 rounded-lg border border-line" style={{ background: product.hex }} aria-hidden="true" />
                   )}

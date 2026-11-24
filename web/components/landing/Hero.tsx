@@ -18,17 +18,33 @@ export default function Hero() {
     const v = video.current;
     if (!v) return;
     v.muted = true; // React does not reliably set this as an attribute, and browsers need it to autoplay.
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    // Not on a data saver or a slow connection (the 1 MB film would cost the visitor), nor with reduced motion.
+    const net = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || net?.saveData || /2g|3g/.test(net?.effectiveType ?? '')) {
       setPaused(true);
       return;
     }
-    v.play().catch(() => setPaused(true));
+    // The poster paints first; the film starts once the page has loaded, so it never competes with it.
+    let cancelled = false;
+    const start = () => {
+      if (cancelled) return;
+      v.src = '/videos/hero-mobile.mp4';
+      v.play().catch(() => setPaused(true));
+    };
+    const later = () => setTimeout(start, 1500);
+    if (document.readyState === 'complete') later();
+    else window.addEventListener('load', later, { once: true });
+    return () => {
+      cancelled = true;
+      window.removeEventListener('load', later);
+    };
   }, []);
 
   const toggle = () => {
     const v = video.current;
     if (!v) return;
     if (v.paused) {
+      if (!v.getAttribute('src')) v.src = '/videos/hero-mobile.mp4';
       setPaused(false);
       v.play().catch(() => setPaused(true));
     } else {
@@ -49,35 +65,25 @@ export default function Hero() {
         <div className="rise">
           <p className="flex items-center gap-2.5 text-xs font-semibold uppercase tracking-[0.28em] text-gold-deep">
             <span className="h-px w-8 bg-gold" aria-hidden="true" />
-            A styling game for Pakistani fashion
+            A free wedding-season styling game
           </p>
-          <h1 className="mt-5 text-[3.25rem] font-semibold leading-[0.95] tracking-tight text-ink sm:text-7xl xl:text-[5.6rem]">
-            Style the look.
-            <br />
-            Walk the{' '}
+          <h1 className="mt-5 text-[2.15rem] font-semibold leading-[1.08] tracking-tight text-ink sm:text-5xl xl:text-[3.75rem]">
+            Build your full <span className="italic text-plum">wedding look</span> from 20+ Pakistani brands, within your budget, in 2 minutes.{' '}
             <span className="relative inline-block italic text-plum">
-              Runway.
+              Free.
               <svg viewBox="0 0 220 18" className="absolute -bottom-2 left-0 w-full text-gold" aria-hidden="true" preserveAspectRatio="none">
                 <path className="draw" d="M3 12 C 60 2, 150 2, 217 9" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" />
               </svg>
             </span>
           </h1>
-          <p className="mt-7 max-w-lg text-lg leading-relaxed text-ink/75">
-            Pick a challenge, put a complete look together from real pieces by the brands you love, kurta to khussa,
-            for her or for him, and share it on the Runway for everyone to see.
-          </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link href="/signup" className="btn btn-primary !px-8 !py-4 text-base">Start styling, it’s free</Link>
-            <a href="#try" className="btn btn-ghost !px-8 !py-4 text-base">Try a look first ↓</a>
+          <div className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
+            {/* Guests can play straight away; an account is only asked for to preview or publish. */}
+            <Link href="/studio" className="btn btn-primary w-full !px-8 !py-4 text-base sm:w-auto">Build my wedding look, free</Link>
+            <p className="text-sm text-ink/70">
+              Already playing?{' '}
+              <Link href="/login" className="inline-flex min-h-[24px] items-center font-semibold text-plum underline-offset-2 hover:underline">Sign in</Link>
+            </p>
           </div>
-          <ul className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink/65">
-            {['Real pieces, real brands', 'Women’s and men’s looks', 'Prices in PKR', 'Modest-friendly'].map((t) => (
-              <li key={t} className="flex items-center gap-2">
-                <span className="text-gold" aria-hidden="true">✦</span>
-                {t}
-              </li>
-            ))}
-          </ul>
         </div>
 
         {/* ------------------------- the arch, with the game around it ------------------------- */}
@@ -87,11 +93,10 @@ export default function Hero() {
             <img src="/videos/hero-poster-mobile.jpg" alt="" width={540} height={720} fetchPriority="high" className="absolute inset-0 h-full w-full object-cover" />
             <video
               ref={video}
-              src="/videos/hero-mobile.mp4"
               loop
               muted
               playsInline
-              preload="metadata"
+              preload="none"
               aria-hidden="true"
               tabIndex={-1}
               onPlaying={() => setPlaying(true)}
@@ -138,6 +143,25 @@ export default function Hero() {
           </div>
         </div>
       </div>
+
+      {/* What the game gives you, in three short points */}
+      <ul className="page relative grid gap-3 pb-14 sm:grid-cols-3 sm:gap-5 lg:pb-20">
+        {POINTS.map((p) => (
+          <li key={p.t} className="flex gap-3 rounded-2xl border border-line bg-white/80 p-4 sm:p-5">
+            <span className="mt-0.5 text-gold" aria-hidden="true">✦</span>
+            <span>
+              <span className="block font-semibold text-ink">{p.t}</span>
+              <span className="mt-1 block text-sm leading-relaxed text-ink/70">{p.b}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
+
+const POINTS = [
+  { t: 'Real products, real prices', b: 'Every piece comes from the brand’s own shop, with its price in rupees.' },
+  { t: 'Mix brands in one look', b: 'A kurta from one brand, khussa from another, a clutch from a third.' },
+  { t: 'See it on a model with AI', b: 'Your first 2 previews are free.' },
+];

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { PALETTE_HEX } from '@/lib/palette';
 import type { Weekly } from '@/lib/types';
+import { photo } from '@/lib/photo';
 
 /**
  * The challenge of the week at the top of the Runway: this week's women's and men's challenges,
@@ -45,7 +46,7 @@ export default function WeeklyBanner() {
           <div key={c.id} className="flex items-center gap-3 rounded-2xl border border-line bg-white p-3">
             {c.cover && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={c.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-16 w-12 shrink-0 rounded-xl bg-sand object-cover object-top" />
+              <img src={photo(c.cover, 120)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-16 w-12 shrink-0 rounded-xl bg-sand object-cover object-top" />
             )}
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/65">{c.gender === 'male' ? 'Men' : 'Women'}</p>
@@ -74,7 +75,7 @@ export default function WeeklyBanner() {
                     <div className="relative">
                       {img ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={img} alt="" loading="lazy" referrerPolicy="no-referrer" className="aspect-[3/4] w-24 rounded-xl bg-sand object-cover object-top transition group-hover:opacity-90" />
+                        <img src={photo(img, 240)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="aspect-[3/4] w-24 rounded-xl bg-sand object-cover object-top transition group-hover:opacity-90" />
                       ) : (
                         <div className="aspect-[3/4] w-24 rounded-xl bg-sand" />
                       )}

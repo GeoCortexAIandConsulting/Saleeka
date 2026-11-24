@@ -1,4 +1,4 @@
-/** The Saleeqa emblem (cut from the brand logo, public/logo_no_bg.png) with the wordmark beside it. */
+/** The Saleeqa emblem (cut from the brand logo) with the wordmark beside it. */
 export default function Logo({ variant = 'full', className = '' }: { variant?: 'full' | 'mark'; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-2 font-display text-[1.7rem] font-semibold leading-none tracking-tight text-plum ${className}`}>

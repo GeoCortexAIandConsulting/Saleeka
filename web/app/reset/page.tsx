@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Header from '@/components/Header';
 import AuthShell from '@/components/AuthShell';
+import PasswordInput from '@/components/PasswordInput';
 import { api } from '@/lib/api';
 
 /** Opened from the reset email (?token=…): choose a new password, then go straight to the Studio. */
@@ -46,11 +47,11 @@ export default function Reset() {
           <form onSubmit={submit} className="mt-6 space-y-4">
             <label className="block text-sm font-medium">
               New password
-              <input className="input mt-1" type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} />
+              <PasswordInput autoComplete="new-password" minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} />
             </label>
             <label className="block text-sm font-medium">
               The same password again
-              <input className="input mt-1" type="password" autoComplete="new-password" minLength={8} required value={again} onChange={(e) => setAgain(e.target.value)} />
+              <PasswordInput autoComplete="new-password" minLength={8} required value={again} onChange={(e) => setAgain(e.target.value)} />
             </label>
             <p className="text-xs text-ink/65">At least 8 characters.</p>
             {error && (

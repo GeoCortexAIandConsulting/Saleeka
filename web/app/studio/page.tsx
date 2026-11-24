@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import Header from '@/components/Header';
 import LookBoard, { type SlotState } from '@/components/LookBoard';
 import PieceGrid from '@/components/PieceGrid';
+import LaunchBanner from '@/components/LaunchBanner';
+import LookLive from '@/components/LookLive';
 import ShareButtons from '@/components/ShareButtons';
+import { shareMessage } from '@/lib/shareText';
 import StudioBrief from '@/components/StudioBrief';
 import StudioWelcome from '@/components/StudioWelcome';
 import { toast } from '@/components/Toaster';
@@ -12,8 +15,11 @@ import { api, rupees } from '@/lib/api';
 import { PALETTE_HEX } from '@/lib/palette';
 import { SLOT_NAME, slotStates } from '@/lib/lookRules';
 import { useMaybeUser } from '@/lib/useMe';
+import { GUEST_LOOK_KEY, lookKey, LOOK_KEPT_FOR } from '@/lib/savedLook';
+import { EMAIL_VERIFIED, resendConfirmation } from '@/lib/verifyEmail';
 import { useRouter } from 'next/navigation';
 import { lookFromItems, maxPieces, slotsFor, type PreviewStatus, type Challenge, type Design, type FeedLook, type Gender, type Product, type Slot, type StudioLook } from '@/lib/types';
+import { photo } from '@/lib/photo';
 
 type Tab = 'design' | 'mine';
 type Step = 'challenge' | 'loading' | 'build' | 'preview' | 'done';
@@ -26,6 +32,16 @@ function Swatches({ colors }: { colors: string[] }) {
         <span key={c} className="h-3.5 w-3.5 rounded-full border border-ink/15" style={{ background: PALETTE_HEX[c] }} title={c} />
       ))}
     </span>
+  );
+}
+
+/** The launch prize, e.g. "Top-voted look wins a PKR 10,000 voucher". */
+function PrizeLine({ text }: { text: string }) {
+  return (
+    <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-plum-dark">
+      <span aria-hidden="true">🏆</span>
+      {text}
+    </p>
   );
 }
 
@@ -73,6 +89,12 @@ function PreviewWait() {
   );
 }
 
+/** The preview button: "(2 free)" before the first preview, then "(1 left)". Guests see the free count. */
+function previewLabel(status: PreviewStatus | null, free: number | null) {
+  if (status) return `See it on a model (${status.left} ${status.used === 0 ? 'free' : 'left'})`;
+  return free ? `See it on a model (${free} free)` : 'See it on a model';
+}
+
 /** A look in progress, kept on this device so a refresh or a closed tab does not lose it. */
 type SavedLook = { challengeId: string; look: StudioLook; active: Slot; at: number };
 /** Looks saved before a slot could hold several pieces kept one piece per slot. */
@@ -80,9 +102,9 @@ const asStudioLook = (look: Partial<Record<Slot, Product | Product[]>>): StudioL
   Object.fromEntries(Object.entries(look).filter(([, v]) => v).map(([k, v]) => [k, Array.isArray(v) ? v : [v]])) as StudioLook;
 /** How many pieces a look has in a slot. */
 const countIn = (look: StudioLook, s: Slot) => look[s]?.length ?? 0;
-const WEEK = 7 * 24 * 60 * 60 * 1000;
+const WEEK = LOOK_KEPT_FOR;
 /** A guest's look in progress; it moves to their account when they sign up. */
-const GUEST_KEY = 'saleeqa:studio:guest';
+const GUEST_KEY = GUEST_LOOK_KEY;
 /** Where sign-up sends a guest back to: the Studio, straight into their look. */
 const BACK_TO_LOOK = `?next=${encodeURIComponent('/studio?continue=1')}`;
 
@@ -145,7 +167,7 @@ export default function Studio() {
   }
 
   /* --------------------------- look in progress --------------------------- */
-  const saveKey = !ready ? null : me ? `saleeqa:studio:${me.user.id}` : GUEST_KEY;
+  const saveKey = !ready ? null : me ? lookKey(me.user.id) : GUEST_KEY;
   const [resume, setResume] = useState<{ challenge: Challenge; saved: SavedLook } | null>(null);
 
   const forgetSaved = () => {
@@ -317,6 +339,8 @@ export default function Studio() {
   const [previewing, setPreviewing] = useState(false);
   /** The look just published, to share and open */
   const [published, setPublished] = useState<Design | null>(null);
+  /** The full-screen "Your look is live!" share step, right after publishing */
+  const [liveOpen, setLiveOpen] = useState(false);
   /** The body size the model is shown at (remembered on this device) */
   const [size, setSize] = useState<BodySize>('medium');
   useEffect(() => {
@@ -328,27 +352,42 @@ export default function Studio() {
 
   /** How many previews the player has left, and what (if anything) stops a new one: kept fresh after each. */
   const [pstatus, setPstatus] = useState<PreviewStatus | null>(null);
+  /** Free previews every new account gets (shown to guests on the button) */
+  const [freePreviews, setFreePreviews] = useState<number | null>(null);
   const loadPreview = () =>
-    api<{ enabled: boolean; status?: PreviewStatus }>('/game/preview')
+    api<{ enabled: boolean; free?: number; status?: PreviewStatus }>('/game/preview')
       .then((r) => {
         setPreviewOn(r.enabled);
         setPstatus(r.status ?? null);
+        setFreePreviews(r.free ?? null);
       })
       .catch(() => setPreviewOn(false));
   useEffect(() => {
     if (ready) loadPreview();
   }, [ready]);
+  // The confirmation link is usually opened in another tab or on the phone: check again on return,
+  // so the preview unlocks without a reload.
+  useEffect(() => {
+    if (!me || pstatus?.blocked !== 'verify') return;
+    const again = () => document.visibilityState === 'visible' && loadPreview();
+    document.addEventListener('visibilitychange', again);
+    window.addEventListener(EMAIL_VERIFIED, loadPreview);
+    return () => {
+      document.removeEventListener('visibilitychange', again);
+      window.removeEventListener(EMAIL_VERIFIED, loadPreview);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me, pstatus?.blocked]);
   /** Guests see the button (it leads to sign-up); players only while they have a preview to use. */
   const canPreview = previewOn && (!me || !pstatus?.blocked);
-  const [resent, setResent] = useState(false);
+  const [resending, setResending] = useState(false);
+  /** Laptop testing only: the link the confirmation email carries */
+  const [verifyLink, setVerifyLink] = useState<string | null>(null);
   async function resendVerification() {
-    try {
-      await api('/auth/verify/resend', { method: 'POST' });
-      setResent(true);
-      toast('Sent! Check your inbox (and spam) for the link.', 'success');
-    } catch (e) {
-      toast((e as Error).message, 'error');
-    }
+    setResending(true);
+    const r = await resendConfirmation();
+    if (r?.devLink) setVerifyLink(r.devLink);
+    setResending(false);
   }
 
   /**
@@ -444,6 +483,7 @@ export default function Studio() {
         : await api<{ design: Design }>('/game/designs', { body: { challengeId: challenge.id, items: itemsBody() } });
       setPublished(r.design);
       setStep('done');
+      setLiveOpen(true);
       forgetSaved();
       loadChallenges();
     } catch (e) {
@@ -501,13 +541,26 @@ export default function Studio() {
                 role="tab"
                 aria-selected={tab === t}
                 onClick={() => setTab(t)}
-                className={`rounded-full px-4 py-2 ${tab === t ? 'bg-plum text-white' : 'text-ink/70 hover:bg-sand'}`}
+                className={`min-h-[40px] rounded-full px-4 py-2 ${tab === t ? 'bg-plum text-white' : 'text-ink/70 hover:bg-sand'}`}
               >
                 {t === 'design' ? 'Design' : 'My designs'}
               </button>
             ))}
           </div>
         </div>
+
+        {/* The launch contest while choosing a challenge: Play opens the first launch challenge. */}
+        {tab === 'design' && step === 'challenge' && (
+          <LaunchBanner
+            onPlay={(id) =>
+              findChallenge(id).then((c) => {
+                if (!c) return toast('That challenge is not open any more.', 'error');
+                setSide(c.gender);
+                chooseChallenge(c);
+              })
+            }
+          />
+        )}
 
         {tab === 'design' && (
           <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -582,7 +635,7 @@ export default function Studio() {
                           <button onClick={() => chooseChallenge(c)} className="flex w-full gap-3 rounded-2xl border border-line p-3 text-left transition-colors hover:border-gold hover:bg-ivory">
                             {c.cover ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={c.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-[72px] w-14 shrink-0 rounded-xl bg-sand object-cover object-top" />
+                              <img src={photo(c.cover, 140)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-[72px] w-14 shrink-0 rounded-xl bg-sand object-cover object-top" />
                             ) : (
                               <span className="h-[72px] w-14 shrink-0 rounded-xl bg-sand" aria-hidden="true" />
                             )}
@@ -590,11 +643,12 @@ export default function Studio() {
                             <div className="flex items-start justify-between gap-2">
                               <span className="text-sm font-semibold">{c.title}</span>
                               {c.featured ? (
-                                <span className="shrink-0 rounded-full bg-gold px-2 py-0.5 text-[11px] font-semibold text-ink">★ This week</span>
+                                <span className="shrink-0 rounded-full bg-gold px-2 py-0.5 text-[11px] font-semibold text-ink">{c.prize ? '★ Launch' : '★ This week'}</span>
                               ) : (
                                 c.fromShoppers && <span className="shrink-0 rounded-full bg-plum-soft px-2 py-0.5 text-[11px] font-semibold text-plum-dark">asked by shoppers</span>
                               )}
                             </div>
+                            {c.prize && <PrizeLine text={c.prize} />}
                             <ChallengeTags c={c} />
                             <div className="mt-1 text-[11px] text-ink/65">{c.designs ? `${c.designs} design${c.designs === 1 ? '' : 's'} so far` : 'Be the first to style it'}</div>
                             </span>
@@ -611,6 +665,7 @@ export default function Studio() {
                   <button onClick={resetDesign} className="text-xs text-plum underline-offset-2 hover:underline">← All challenges</button>
                   {challenge.custom && <p className="eyebrow mt-2">Your own brief</p>}
                   <h2 className="mt-1 font-semibold">{challenge.title}</h2>
+                  {challenge.prize && <PrizeLine text={challenge.prize} />}
                   <ChallengeTags c={challenge} />
                 </div>
               )}
@@ -634,7 +689,7 @@ export default function Studio() {
                           >
                             {p?.images?.[0] && st !== 'included' ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={p.images[0]} alt="" referrerPolicy="no-referrer" className="h-9 w-9 shrink-0 rounded-lg object-cover object-top" style={{ background: p.hex }} />
+                              <img src={photo(p.images[0], 96)} alt="" decoding="async" referrerPolicy="no-referrer" className="h-9 w-9 shrink-0 rounded-lg object-cover object-top" style={{ background: p.hex }} />
                             ) : (
                               <span className="h-9 w-9 shrink-0 rounded-lg border border-ink/10" style={{ background: p?.hex ?? 'transparent', borderStyle: p ? 'solid' : 'dashed' }} />
                             )}
@@ -671,11 +726,18 @@ export default function Studio() {
                       );
                     })}
                   </ul>
-                  {/* No budget in the game; the total is kept so looks can be matched to shoppers' budgets later. */}
+                  {/* Most briefs have no budget (the total is kept to match looks to shoppers' budgets later); launch briefs can. */}
                   <div className="mt-4 flex justify-between text-sm">
                     <span>Look total</span>
-                    <span className="font-semibold">{rupees(total)}</span>
+                    <span className={`font-semibold ${challenge?.lookBudget && total > challenge.lookBudget ? 'text-red-700' : ''}`}>{rupees(total)}</span>
                   </div>
+                  {challenge?.lookBudget ? (
+                    <p className={`mt-1 text-right text-xs ${total > challenge.lookBudget ? 'font-semibold text-red-700' : 'text-ink/70'}`} role="status">
+                      {total > challenge.lookBudget
+                        ? `${rupees(total - challenge.lookBudget)} over the ${rupees(challenge.lookBudget)} budget: swap a piece for a cheaper one`
+                        : `Budget ${rupees(challenge.lookBudget)} · ${rupees(challenge.lookBudget - total)} left`}
+                    </p>
+                  ) : null}
                   {!me && missing.length === 0 && (
                     <p className="mt-4 rounded-xl bg-ivory px-3 py-2 text-xs text-ink/75">
                       Your look is ready! A free account lets you see it on a model and publish it. Your pieces stay chosen.{' '}
@@ -689,39 +751,46 @@ export default function Studio() {
                   ) : canPreview ? (
                     <>
                       <SizePicker size={size} onPick={pickSize} disabled={previewing} />
-                      <button className="btn btn-primary mt-4 w-full" onClick={preview}>✨ Preview on model</button>
-                      <p className="mt-2 text-center text-xs text-ink/65">
-                        {pstatus
-                          ? `${pstatus.left} free preview${pstatus.left === 1 ? '' : 's'} left · get another for every ${pstatus.friendsForCredit} friends who join from your share link`
-                          : 'See your look on a model before it goes on the Runway.'}
-                      </p>
-                      <button className="mt-2 w-full text-center text-xs text-plum underline-offset-2 hover:underline disabled:opacity-50" disabled={busy} onClick={askPublish}>
-                        {busy ? 'Publishing…' : 'or publish without a preview'}
+                      <button className="btn btn-primary mt-4 w-full" onClick={preview}>✨ {previewLabel(pstatus, freePreviews)}</button>
+                      <p className="mt-2 text-center text-xs text-ink/70">See your look on a model before it goes on the Runway.</p>
+                      <button className="btn btn-ghost mt-3 w-full" disabled={busy} onClick={askPublish}>
+                        {busy ? 'Publishing…' : 'Publish my look'}
                       </button>
                     </>
                   ) : (
                     <>
                       {/* The preview stays in sight while it is locked, with the reason right under it. */}
                       {me && previewOn && pstatus?.blocked && (
-                        <button className="btn btn-primary mt-4 w-full" disabled aria-describedby="preview-locked">🔒 Preview on model</button>
+                        <button className="btn btn-ghost mt-4 w-full" disabled aria-describedby="preview-locked">🔒 See it on a model</button>
                       )}
                       {me && previewOn && pstatus?.blocked && (
                         <div id="preview-locked" className="mt-2 rounded-xl bg-ivory px-3 py-2.5 text-xs text-ink/80" role="status">
                           {pstatus.blocked === 'verify' ? (
                             <>
                               <p>
-                                <strong>Confirm your email to unlock {pstatus.left} free AI previews.</strong> We sent a link to {me.user.email}.
+                                <strong>
+                                  Confirm your email to unlock {pstatus.left > 0 ? `your ${pstatus.left} free AI preview${pstatus.left === 1 ? '' : 's'}` : 'AI previews'}.
+                                </strong>{' '}
+                                We sent a link to <span className="break-all">{me.user.email}</span>.
                               </p>
-                              <button type="button" className="mt-1.5 font-semibold text-plum underline-offset-2 hover:underline disabled:opacity-60" disabled={resent} onClick={resendVerification}>
-                                {resent ? 'Link sent' : 'Send the link again'}
-                              </button>
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <button type="button" className="btn btn-primary !min-h-[40px] !px-4 !py-1.5 text-sm" disabled={resending} onClick={resendVerification}>
+                                  {resending ? 'Sending…' : 'Resend email'}
+                                </button>
+                                {verifyLink && (
+                                  <a href={verifyLink} className="inline-flex min-h-[40px] items-center px-2 text-sm font-semibold text-plum-dark underline underline-offset-2">
+                                    Open link (testing)
+                                  </a>
+                                )}
+                              </div>
                             </>
                           ) : (
                             <p>{pstatus.message}</p>
                           )}
                         </div>
                       )}
-                      <button className={`btn mt-3 w-full ${me && previewOn && pstatus?.blocked ? 'btn-ghost' : 'btn-primary'}`} disabled={busy} onClick={askPublish}>
+                      {/* Publishing never waits for a preview: always there, always the main button here. */}
+                      <button className="btn btn-primary mt-3 w-full" disabled={busy} onClick={askPublish}>
                         {busy ? 'Publishing…' : 'Publish my look'}
                       </button>
                     </>
@@ -768,11 +837,13 @@ export default function Studio() {
                     <div className="mt-4 rounded-2xl bg-ivory p-3">
                       <p className="mb-2 text-sm font-semibold">Ask your friends what they think</p>
                       <div className="flex justify-center">
-                        <ShareButtons lookId={published.id} compact text={`I styled this ${challenge?.title ?? 'look'} on Saleeqa. What do you think?`} />
+                        <ShareButtons lookId={published.id} compact text={shareMessage('en', challenge?.name ?? challenge?.title, published.total)} />
                       </div>
-                      <p className="mt-2 text-xs text-ink/75">
-                        Every {pstatus?.friendsForCredit ?? 3} friends who join from your link and publish a look earn you a free AI preview.
-                      </p>
+                      {pstatus?.canEarn !== false && (
+                        <p className="mt-2 text-xs text-ink/75">
+                          Each friend who joins and publishes a look gives you +1 free preview (up to 5). So do {pstatus?.likesForCredit ?? 3} likes on this look.
+                        </p>
+                      )}
                     </div>
                   )}
                   <div className="mt-4 flex flex-col gap-2">
@@ -871,6 +942,18 @@ export default function Studio() {
               )}
             </section>
           </div>
+        )}
+
+        {step === 'done' && published && liveOpen && (
+          <LookLive
+            lookId={published.id}
+            challengeTitle={challenge?.name ?? challenge?.title}
+            total={published.total}
+            imageUrl={published.previewUrl ?? draft?.previewUrl}
+            fallback={<LookBoard pieces={look} states={states} gender={challenge?.gender} className="w-full" />}
+            canEarn={pstatus?.canEarn !== false}
+            onClose={() => setLiveOpen(false)}
+          />
         )}
 
         {confirmPublish && (

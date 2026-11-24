@@ -5,7 +5,12 @@ import GuestWall from '@/components/GuestWall';
 import Header from '@/components/Header';
 import LookTile from '@/components/LookTile';
 import { toast } from '@/components/Toaster';
+import LaunchBanner from '@/components/LaunchBanner';
 import WeeklyBanner from '@/components/WeeklyBanner';
+import { LAUNCH_ENDS } from '@/lib/launch';
+
+/** Before the launch deadline (NEXT_PUBLIC_LAUNCH_ENDS): the launch banner stands in for the weekly one. */
+const launchWeek = () => LAUNCH_ENDS !== null && Date.now() < LAUNCH_ENDS;
 import { api } from '@/lib/api';
 import { useMaybeUser } from '@/lib/useMe';
 import { useLiveCounts, withCounts } from '@/lib/useLiveCounts';
@@ -119,7 +124,9 @@ export default function Runway() {
           <Link href="/studio" className="btn btn-primary">Style a look</Link>
         </div>
 
-        {me && <WeeklyBanner />}
+        {/* Launch week: the contest and its top 10 for everyone; the weekly banner (same challenges) comes back after. */}
+        <LaunchBanner board />
+        {me && !launchWeek() && <WeeklyBanner />}
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-full border border-line bg-white p-1 text-sm" role="tablist" aria-label="Order of looks">

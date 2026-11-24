@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import type { FeedLook } from '@/lib/types';
+import { photo } from '@/lib/photo';
 
 /**
  * What the Studio shows before a challenge is picked: how it works in three steps, and a few
@@ -56,7 +57,7 @@ export default function StudioWelcome() {
               <li key={l.id}>
                 <Link href={`/runway/${l.id}`} className="group block">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={img} alt={`${l.by}’s ${l.challenge?.title ?? 'look'}`} loading="lazy" referrerPolicy="no-referrer" className="aspect-[3/4] w-full rounded-2xl bg-sand object-cover object-top transition group-hover:opacity-90" />
+                  <img src={photo(img, 400)} decoding="async" alt={`${l.by}’s ${l.challenge?.title ?? 'look'}`} loading="lazy" referrerPolicy="no-referrer" className="aspect-[3/4] w-full rounded-2xl bg-sand object-cover object-top transition group-hover:opacity-90" />
                   <p className="mt-1.5 truncate text-sm font-semibold">{l.by}</p>
                   <p className="truncate text-xs text-ink/65">
                     <span className="text-plum">♥ {l.up}</span> · {l.challenge?.title ?? 'A look'}

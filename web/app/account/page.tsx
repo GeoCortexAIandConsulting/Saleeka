@@ -184,9 +184,11 @@ export default function Account() {
                 {previews && (
                   <p className="mt-3 rounded-xl bg-ivory px-3 py-2 text-xs text-ink/80">
                     <strong>AI previews: {previews.left} left.</strong>{' '}
-                    {previews.friendsToGo > 0
-                      ? `${previews.friends} friend${previews.friends === 1 ? '' : 's'} joined from your share links. ${previews.friendsToGo} more for a free preview.`
-                      : 'You’ve earned all the free previews friends can bring. Thank you for sharing!'}
+                    {!previews.verified
+                      ? 'Confirm your email to unlock them.'
+                      : previews.canEarn
+                        ? `Get another when ${previews.likesForCredit} people like one of your looks, or ${previews.friendsForCredit === 1 ? 'when a friend joins from your link and publishes a look' : `for every ${previews.friendsForCredit} friends who join from your link and publish a look`}.`
+                        : 'You’ve earned all the free previews there are. Thank you for sharing!'}
                   </p>
                 )}
               </div>

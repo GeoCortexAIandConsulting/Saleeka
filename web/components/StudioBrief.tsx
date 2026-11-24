@@ -141,14 +141,14 @@ export default function StudioBrief({
                 type="button"
                 aria-pressed={on}
                 onClick={() => toggle(b.id)}
-                className={`min-h-[36px] rounded-full border px-3 text-xs font-medium transition-colors ${on ? 'border-plum bg-plum text-white' : 'border-line bg-white text-ink/80 hover:border-gold'}`}
+                className={`min-h-[40px] rounded-full border px-3 text-xs font-medium transition-colors ${on ? 'border-plum bg-plum text-white' : 'border-line bg-white text-ink/80 hover:border-gold'}`}
               >
                 {b.name} <span className={on ? 'text-white/80' : 'text-ink/65'}>· {b.count}</span>
               </button>
             );
           })}
           {brands.length > 10 && (
-            <button type="button" onClick={() => setAllBrands((x) => !x)} className="min-h-[36px] px-2 text-xs font-medium text-plum underline-offset-2 hover:underline">
+            <button type="button" onClick={() => setAllBrands((x) => !x)} className="min-h-[40px] px-2 text-xs font-medium text-plum underline-offset-2 hover:underline">
               {allBrands ? 'Fewer' : `+${brands.length - 10} more`}
             </button>
           )}
@@ -186,7 +186,7 @@ export default function StudioBrief({
       />
       <div className="no-scrollbar -mx-1 mt-1.5 flex gap-1.5 overflow-x-auto px-1 pb-1">
         {EXAMPLES[gender].map((x) => (
-          <button key={x} type="button" onClick={() => setText(x)} className="min-h-[32px] shrink-0 rounded-full border border-line bg-white px-3 text-xs text-ink/75 hover:border-gold">
+          <button key={x} type="button" onClick={() => setText(x)} className="min-h-[40px] shrink-0 rounded-full border border-line bg-white px-3 text-xs text-ink/75 hover:border-gold">
             {x}
           </button>
         ))}

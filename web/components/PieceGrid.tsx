@@ -4,6 +4,7 @@ import { api, rupees } from '@/lib/api';
 import { PALETTE_HEX } from '@/lib/palette';
 import QuickView from '@/components/QuickView';
 import type { PieceGroup, PieceSort, PiecesPage, Product, Slot } from '@/lib/types';
+import { photo } from '@/lib/photo';
 
 /**
  * The Studio's piece browser for one slot of a challenge: search, brand, colour, price and sort,
@@ -67,7 +68,7 @@ function Card({ group, selected, swaps, onPick, onRemove, main }: CardProps) {
       <button type="button" onClick={() => onPick(p)} aria-pressed={on} className="block w-full text-left">
         {p.images?.[0] ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={p.images[0]} alt="" loading="lazy" referrerPolicy="no-referrer" className="aspect-[3/4] w-full object-cover object-top" style={{ background: p.hex }} />
+          <img src={photo(p.images[0], 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="aspect-[3/4] w-full object-cover object-top" style={{ background: p.hex }} />
         ) : (
           <div className="aspect-[3/4] w-full" style={{ background: p.hex }} role="img" aria-label={p.colors.join(' and ')} />
         )}

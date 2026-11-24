@@ -14,6 +14,7 @@ const WHAT: Record<AppNotification['type'], string> = {
   comment: 'commented on your look',
   reply: 'replied to your comment',
   friend: 'joined from your link and published a look',
+  credit: 'and others liked your look',
 };
 
 export default function NotificationBell() {
@@ -102,7 +103,7 @@ export default function NotificationBell() {
               {list.map((n) => (
                 <li key={n.id}>
                   <Link
-                    href={`/runway/${n.lookId}${n.type === 'like' || n.type === 'friend' ? '' : '#comments'}`}
+                    href={`/runway/${n.lookId}${n.type === 'like' || n.type === 'friend' || n.type === 'credit' ? '' : '#comments'}`}
                     onClick={() => setOpen(false)}
                     className={`flex items-start gap-3 rounded-2xl px-3 py-2.5 hover:bg-ivory ${n.read ? '' : 'bg-plum-soft/50'}`}
                   >
@@ -115,8 +116,15 @@ export default function NotificationBell() {
                       </span>
                     )}
                     <span className="min-w-0 flex-1 text-sm">
-                      <span className="font-semibold">{n.by}</span> {WHAT[n.type]}
-                      {n.text && <span className={`mt-0.5 block truncate ${n.type === 'friend' ? 'font-medium text-plum' : 'text-ink/70'}`}>{n.type === 'friend' ? n.text : `“${n.text}”`}</span>}
+                      {n.type === 'friend' && n.text ? (
+                        // The server writes the whole line: "Ayesha joined from your link: +1 preview"
+                        <span className="font-semibold text-plum-dark">{n.text}</span>
+                      ) : (
+                        <>
+                          <span className="font-semibold">{n.by}</span> {WHAT[n.type]}
+                        </>
+                      )}
+                      {n.text && n.type !== 'friend' && <span className={`mt-0.5 block truncate ${n.type === 'credit' ? 'font-medium text-plum' : 'text-ink/70'}`}>{n.type === 'credit' ? n.text : `“${n.text}”`}</span>}
                       <span className="mt-0.5 block truncate text-xs text-ink/65">
                         {n.lookTitle} · {ago(n.at)}
                       </span>

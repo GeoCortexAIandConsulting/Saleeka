@@ -1,5 +1,6 @@
 'use client';
 import type { Gender, Product, Slot } from '@/lib/types';
+import { photo as sized } from '@/lib/photo';
 
 /**
  * The look board: the outfit as worn, large on the left, and the pieces that complete it stacked
@@ -79,7 +80,8 @@ export default function LookBoard({ pieces, states = {}, active, onSlot, classNa
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 key={x.id}
-                src={x.images[0]}
+                src={sized(x.images[0], 260)}
+                decoding="async"
                 alt={`${x.title} by ${x.brandName}`}
                 referrerPolicy="no-referrer"
                 className="h-full min-w-0 flex-1 object-contain p-0.5 mix-blend-multiply"
@@ -109,7 +111,10 @@ export default function LookBoard({ pieces, states = {}, active, onSlot, classNa
         {photo && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={photo}
+            src={sized(photo, isMain ? 640 : 280)}
+            // The outfit is usually the biggest thing on screen: fetch it first, decode it straight away.
+            decoding={isMain ? 'sync' : 'async'}
+            fetchPriority={isMain && !compact ? 'high' : 'auto'}
             alt={`${p.title} by ${p.brandName}`}
             referrerPolicy="no-referrer"
             className={`h-full w-full ${fit}`}

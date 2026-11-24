@@ -3,17 +3,20 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import Header from '@/components/Header';
 import AuthShell from '@/components/AuthShell';
-import DevLink from '@/components/DevLink';
+import PasswordInput from '@/components/PasswordInput';
+import { useRouter } from 'next/navigation';
 import UsernameField, { type UsernameState } from '@/components/UsernameField';
 import { toast } from '@/components/Toaster';
-import { api } from '@/lib/api';
+import { api, nextPath } from '@/lib/api';
 import { readRef } from '@/lib/ref';
+import { DEV_VERIFY_LINK } from '@/lib/verifyEmail';
 
 /**
- * Creating an account: name, username, email, password. The last step is the link in the
- * confirmation email, which finishes the account and signs the player in (once, never again).
+ * Creating an account: name, username, email, password. The player is signed in straight away and
+ * goes on playing; the link in the confirmation email unlocks their free AI previews.
  */
 export default function Signup() {
+  const router = useRouter();
   const [form, setForm] = useState({ name: '', username: '', email: '', password: '' });
   const [consent, setConsent] = useState(false);
   const [nameState, setNameState] = useState<UsernameState>('empty');
@@ -23,11 +26,6 @@ export default function Signup() {
 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  /** The address the confirmation link went to, once the form is sent */
-  const [sentTo, setSentTo] = useState('');
-  const [resent, setResent] = useState(false);
-  /** Laptop testing only: the link the email carries */
-  const [devLink, setDevLink] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,51 +33,18 @@ export default function Signup() {
     setBusy(true);
     try {
       const r = await api<{ email: string; devLink?: string }>('/auth/signup', { body: { ...form, username: form.username.trim().replace(/^@/, ''), consent, ref: readRef() } });
-      setSentTo(r.email);
-      setDevLink(r.devLink ?? null);
+      // Laptop testing only: hand the link to the banner, so it can be opened without an inbox.
+      if (r.devLink) {
+        try {
+          sessionStorage.setItem(DEV_VERIFY_LINK, r.devLink);
+        } catch { /* storage blocked: "Resend email" shows it too */ }
+      }
+      toast(`Welcome! We sent a link to ${r.email}: open it to unlock your free AI previews.`, 'success');
+      router.replace(nextPath('/studio'));
     } catch (err: any) {
       setError(err.message);
+      setBusy(false);
     }
-    setBusy(false);
-  }
-
-  async function resend() {
-    try {
-      const r = await api<{ devLink?: string }>('/auth/verify/resend', { body: { email: sentTo } });
-      if (r.devLink) setDevLink(r.devLink);
-      setResent(true);
-      toast('We sent the link again. Check your inbox (and spam).', 'success');
-    } catch (e) {
-      toast((e as Error).message, 'error');
-    }
-  }
-
-  if (sentTo) {
-    return (
-      <>
-        <Header signedIn={false} />
-        <AuthShell>
-          <div role="status">
-            <p className="text-4xl" aria-hidden="true">📩</p>
-            <h1 className="mt-2 text-3xl font-bold">Check your email</h1>
-            <p className="mt-2 text-ink/75">
-              We sent a link to <strong>{sentTo}</strong>. Open it to finish creating your account: it signs you in straight away.
-            </p>
-            <DevLink href={devLink} label="Open the confirmation link" />
-            <p className="mt-3 text-sm text-ink/70">You only do this once. The link works for 7 days. Can’t find it? Look in spam or promotions.</p>
-            <button type="button" className="btn btn-ghost mt-6 w-full" disabled={resent} onClick={resend}>
-              {resent ? 'Link sent again' : 'Send the link again'}
-            </button>
-            <p className="mt-4 text-center text-sm">
-              Wrong address?{' '}
-              <button type="button" className="font-semibold text-plum underline-offset-2 hover:underline" onClick={() => setSentTo('')}>
-                Go back
-              </button>
-            </p>
-          </div>
-        </AuthShell>
-      </>
-    );
   }
 
   return (
@@ -100,7 +65,7 @@ export default function Signup() {
           </label>
           <label className="block text-sm font-medium">
             Password (8+ characters)
-            <input className="input mt-1" type="password" autoComplete="new-password" minLength={8} required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            <PasswordInput autoComplete="new-password" minLength={8} required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </label>
           <label className="flex items-start gap-3 text-sm text-ink/80">
             <input type="checkbox" className="mt-1 h-5 w-5 accent-[#6B2D5C]" checked={consent} onChange={(e) => setConsent(e.target.checked)} />

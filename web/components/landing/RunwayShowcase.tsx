@@ -95,7 +95,7 @@ function PostCard({ post, i }: { post: Post; i: number }) {
           onClick={() => setLiked((l) => !l)}
           aria-pressed={liked}
           aria-label={`Like ${post.by}'s look (${post.likes + (liked ? 1 : 0)} likes)`}
-          className={`chip !min-h-[36px] !py-1 ${liked ? 'chip-on' : ''}`}
+          className={`chip !min-h-[40px] !py-1 ${liked ? 'chip-on' : ''}`}
         >
           <span className={liked ? 'pop' : ''}>♥</span>
           <span className="ml-1.5">{post.likes + (liked ? 1 : 0)}</span>

@@ -25,7 +25,7 @@ export function LikeButton({ look, onVote, big = false }: { look: FeedLook; onVo
       type="button"
       onClick={onVote}
       aria-pressed={on}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-3 font-semibold transition ${big ? 'min-h-[44px] text-base' : 'min-h-[38px] text-sm'} ${on ? 'border-plum/30 bg-plum-soft text-plum' : 'border-line bg-white text-ink/75 hover:border-gold'}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 font-semibold transition ${big ? 'min-h-[44px] text-base' : 'min-h-[40px] text-sm'} ${on ? 'border-plum/30 bg-plum-soft text-plum' : 'border-line bg-white text-ink/75 hover:border-gold'}`}
     >
       <Heart on={on} className={big ? 'h-6 w-6' : 'h-5 w-5'} />
       <span className="sr-only">Like, </span>
